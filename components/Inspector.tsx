@@ -5,6 +5,7 @@
 import { Clipboard, colorScheme, resource, Scroll, signal, Text, View } from "nsh";
 import { nodeCaption, valueKind, valueText, type DbNode, type DbRel, type Value } from "../graph/model";
 import { useStore } from "../store/app";
+import { fitSelection } from "../store/graphSelection";
 import { paletteColor } from "../store/perspective";
 import { Badge, Button, Icon, IconButton, Row, SectionTitle, Separator, Spinner, Swatch } from "../ui";
 
@@ -47,7 +48,7 @@ function SelectionDetails() {
         <View class="flex-row flex-wrap gap-1.5">
           <Button size="sm" variant="primary" icon="expand" label="Expand all" onPress={() => store.expand(ids())} testID="expand" />
           <Button size="sm" icon="focus" label="Focus" onPress={() => store.dismissOthers(ids())} testID="focus" />
-          <IconButton size="sm" variant="secondary" icon="fit" label="Fit to the selection" onPress={() => store.graph.fitSelection()} testID="fit-selection" />
+          <IconButton size="sm" variant="secondary" icon="fit" label="Fit to the selection" onPress={() => fitSelection(store.graph)} testID="fit-selection" />
           <IconButton
             size="sm"
             variant="secondary"
