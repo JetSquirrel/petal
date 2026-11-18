@@ -1,0 +1,17 @@
+{
+  "name": "Petal",
+  "id": "dev.petal.app",
+  "version": "0.1.0",
+  "build": 1,
+  "nsh": ">=0.6",
+  "theme": "theme.json",
+  "rust": ".",
+  "window": {
+    "title": "Petal",
+    "defaultSize": { "width": 1320, "height": 840 },
+    "minSize": { "width": 720, "height": 520 }
+  },
+  "resolve": {
+    "alias": { "nsh-graph": "../nsh-graph/src/index.ts" }
+  }
+}
