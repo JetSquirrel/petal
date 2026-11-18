@@ -8,6 +8,7 @@ import { effect, mount, View, windowSize } from "nsh";
 import { isAvailable as desktop, Menu } from "nsh/desktop";
 import { ConnectDialog } from "./components/ConnectDialog";
 import { Header } from "./components/Header";
+import { canSelectAll, fitSelection, selectAll } from "./store/graphSelection";
 import { Inspector } from "./components/Inspector";
 import { PerspectivePanel } from "./components/PerspectivePanel";
 import { Scene } from "./components/Scene";
@@ -94,8 +95,8 @@ function installMenu(store: AppStore) {
         submenu: [
           { label: "Lay out again", onSelect: () => store.graph.relayout() },
           { label: "Unpin all", onSelect: () => store.graph.unpinAll() },
-          { label: "Select all nodes", disabled: !hasNodes, onSelect: () => store.graph.selectAll() },
-          { label: "Fit to the selection", onSelect: () => store.graph.fitSelection() },
+          { label: "Select all nodes", disabled: !hasNodes || !canSelectAll(store.graph), onSelect: () => selectAll(store.graph) },
+          { label: "Fit to the selection", onSelect: () => fitSelection(store.graph) },
           { type: "separator" },
           { label: "Clear the scene", shortcut: "mod+shift+backspace", disabled: !hasNodes, onSelect: () => store.clearScene() },
         ],

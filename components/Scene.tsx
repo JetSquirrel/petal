@@ -7,6 +7,7 @@ import { isAvailable as desktopMenus, Menu, type MenuItem } from "nsh/desktop";
 import { GraphView, type HitTarget, type LayoutKind } from "nsh-graph";
 import type { DbNode, DbRel } from "../graph/model";
 import { useStore } from "../store/app";
+import { canSelectAll, fitSelection, selectAll, selectedIds } from "../store/graphSelection";
 import { sceneGraphData } from "../store/sceneGraph";
 import { Button, Icon, IconButton, PetalMark, Segmented, Separator, Spinner, Surface } from "../ui";
 
@@ -186,7 +187,7 @@ function contextItems(store: ReturnType<typeof useStore>, target: HitTarget<DbNo
   if (target.kind === "node") {
     const id = target.node.id;
     // A menu over one of several selected nodes acts on them all (nsh-graph kept them selected).
-    const ids = store.graph.selectedIds();
+    const ids = selectedIds(store.graph);
     if (ids.length > 1 && ids.includes(id)) {
       const pinned = ids.every((i) => store.graph.isPinned(i));
       const n = ids.length;
@@ -195,7 +196,7 @@ function contextItems(store: ReturnType<typeof useStore>, target: HitTarget<DbNo
         { label: `Focus on these ${n} nodes`, onSelect: () => store.dismissOthers(ids) },
         { type: "separator" },
         { label: pinned ? `Unpin ${n} nodes` : `Pin ${n} nodes`, onSelect: () => ids.forEach((i) => store.graph.setPinned(i, !pinned)) },
-        { label: "Fit to the selection", onSelect: () => store.graph.fitSelection() },
+        { label: "Fit to the selection", onSelect: () => fitSelection(store.graph) },
         { type: "separator" },
         { label: `Dismiss ${n} nodes`, onSelect: () => store.dismiss(ids) },
       ];
@@ -223,7 +224,7 @@ function contextItems(store: ReturnType<typeof useStore>, target: HitTarget<DbNo
   return [
     { label: "Fit to the scene", onSelect: () => store.graph.fit() },
     { label: "Lay out again", onSelect: () => store.graph.relayout() },
-    { label: "Select all nodes", onSelect: () => store.graph.selectAll() },
+    { label: "Select all nodes", disabled: !canSelectAll(store.graph), onSelect: () => selectAll(store.graph) },
     { label: "Unpin all", onSelect: () => store.graph.unpinAll() },
     { type: "separator" },
     { label: "Undo", disabled: !store.scene.canUndo(), onSelect: () => store.undo() },

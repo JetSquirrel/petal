@@ -10,6 +10,7 @@ import { NebulaSource, type NebulaConnection } from "../graph/nebula";
 import { Neo4jSource, type Neo4jConnection } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { phraseOf } from "../graph/phrase";
+import { selectionNodes } from "./graphSelection";
 import { EMPTY_SCHEMA, errorMessage, type Direction, type GraphSource, type Schema, type SearchSpec } from "../graph/source";
 import { createPerspective } from "./perspective";
 import { createScene } from "./scene";
@@ -283,7 +284,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
     const sel = graph.selection();
     if (!sel || sel.kind !== "node") return [];
     const out: DbNode[] = [];
-    for (const n of sel.nodes) {
+    for (const n of selectionNodes(sel)) {
       const d = scene.nodes().get(n.id);
       if (d) out.push(d);
     }
