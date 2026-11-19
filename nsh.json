@@ -5,7 +5,7 @@
   "build": 1,
   "nsh": ">=0.6",
   "theme": "theme.json",
-  "rust": ".",
+  "rust": [".", "../nsh-graph/native"],
   "window": {
     "title": "Petal",
     "defaultSize": { "width": 1320, "height": 840 },

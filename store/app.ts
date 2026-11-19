@@ -54,8 +54,8 @@ export interface Settings {
 const SETTINGS_KEY = "settings";
 const RECENT_KEY = "recent";
 const CONNECTION_KEY = "connection";
-/** The most nodes a scene holds; Bloom's default is 10 000, a live force layout here stays smooth to a few hundred. */
-export const SCENE_LIMIT = 1500;
+/** The most nodes a scene holds (Bloom's default is 10 000): nsh-graph's Rust layout settles 5 000 in about 5 s. */
+export const SCENE_LIMIT = 5000;
 
 const DEFAULT_SETTINGS: Settings = { limit: 100, layout: "force", labelMode: "auto", edgeLabels: false };
 

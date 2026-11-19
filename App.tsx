@@ -6,6 +6,8 @@
  */
 import { effect, mount, View, windowSize } from "nsh";
 import { isAvailable as desktop, Menu } from "nsh/desktop";
+import { setNativeBackend, type NativeBackend } from "nsh-graph";
+import * as graphNative from "nsh-graph/native";
 import { ConnectDialog } from "./components/ConnectDialog";
 import { Header } from "./components/Header";
 import { canSelectAll, fitSelection, selectAll } from "./store/graphSelection";
@@ -14,6 +16,10 @@ import { PerspectivePanel } from "./components/PerspectivePanel";
 import { Scene } from "./components/Scene";
 import { focusSearch } from "./components/SearchBar";
 import { AppContext, createAppStore, type AppStore } from "./store/app";
+
+// The scene's force layout and drawing run in Rust (nsh-graph's native crate, listed in nsh.json): a big
+// scene settles in seconds instead of minutes. Set before any graph view mounts.
+setNativeBackend(graphNative as unknown as NativeBackend);
 
 function App() {
   const store = createAppStore();

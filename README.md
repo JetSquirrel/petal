@@ -40,9 +40,9 @@ declared in `nsh.json` (`"rust": "."`), so the first run builds HawDB, which tak
 - **Scene.** Results are added to the scene along with the relationships between them and the nodes already there.
   Double-click a node, or use the inspector, to expand it: all its neighbors at once, or one relationship type and
   direction at a time, with counts. Dismiss a node, focus on it (dismiss everything else), pin it, or clear the scene.
-  Select several nodes with Shift-, Ctrl- or ⌘-click or a Shift-drag box (Scene → Select all nodes takes them all); the inspector
-  and the context menu then expand, focus, pin or dismiss them together, and dragging one moves them all. Every change
-  can be undone. Right-click opens a context menu on the desktop.
+  Select several nodes with Shift-, Ctrl- or ⌘-click or a Shift-drag box, or all of them from Scene → Select all
+  nodes; the inspector and the context menu then expand, focus, pin or dismiss them together, and dragging one moves
+  them all. Every change can be undone. Right-click opens a context menu on the desktop.
 - **Perspective.** Every label is a category with a color from a palette that was checked for color-blind viewers
   (light and dark variants), a caption property and a size. Hiding a category or a relationship type takes it off
   the canvas but keeps it in the scene. Petal remembers the perspective for each database.
@@ -150,8 +150,8 @@ passwords. It also opens a real embedded HawDB, loads the demo graph into it, an
 
 - Selecting several nodes takes Shift-, Ctrl- or ⌘-click, or a Shift-drag box, so it needs a keyboard. There is no
   lasso yet, and on a touch screen one node is selected at a time.
-- A scene holds at most 1,500 nodes. The force layout slows down past a few hundred, so use the tree, circle or grid
-  layout for bigger scenes.
+- A scene holds at most 5,000 nodes. The force layout runs in Rust and settles that many in about five seconds; past
+  a couple of thousand, the tree, circle or grid layout is quicker still.
 - Text search scans every node's properties and doesn't use full-text indexes, so it will be slow on large databases.
 - Petal needs Neo4j 5 or later.
 - Context menus and the menu bar are desktop features. On the web and on touch screens, the inspector and toolbar
