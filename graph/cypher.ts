@@ -12,9 +12,17 @@ export interface Statement {
 
 const int = (n: number) => String(Math.max(1, Math.floor(n)));
 
-/** `any property of v contains $p`, case-insensitively. */
-function textFilter(v: string, p: string): string {
-  return `any(k IN keys(${v}) WHERE toLower(toStringOrNull(${v}[k])) CONTAINS $${p})`;
+/** The Cypher of a database, where it differs from Neo4j's. */
+export type CypherDialect = "neo4j" | "memgraph";
+
+/**
+ * `any property of v contains $p`, case-insensitively. Neo4j reads a property by a key it holds in a variable
+ * (`v[k]`); Memgraph lists the values themselves (`values(v)`).
+ */
+function textFilter(v: string, p: string, dialect: CypherDialect): string {
+  return dialect === "memgraph"
+    ? `any(x IN values(${v}) WHERE toLower(toStringOrNull(x)) CONTAINS $${p})`
+    : `any(k IN keys(${v}) WHERE toLower(toStringOrNull(${v}[k])) CONTAINS $${p})`;
 }
 
 /** The arrow of `(a)-[:type]-(b)` that the schema has, so a pattern follows the data's direction. */
@@ -35,11 +43,11 @@ function relPattern(v: string, type: string | undefined, direction: Direction): 
   return `-${inner}-`;
 }
 
-export function searchStatement(spec: SearchSpec, limit: number, schema: Schema): Statement {
+export function searchStatement(spec: SearchSpec, limit: number, schema: Schema, dialect: CypherDialect = "neo4j"): Statement {
   if (spec.kind === "raw") return { statement: spec.statement, parameters: {} };
   if (spec.kind === "text") {
     return {
-      statement: `MATCH (n) WHERE ${textFilter("n", "term")} RETURN n LIMIT ${int(limit)}`,
+      statement: `MATCH (n) WHERE ${textFilter("n", "term", dialect)} RETURN n LIMIT ${int(limit)}`,
       parameters: { term: spec.term.toLowerCase() },
     };
   }
@@ -50,7 +58,7 @@ export function searchStatement(spec: SearchSpec, limit: number, schema: Schema)
     pattern += `(n${i}${step.label ? ":" + cypherName(step.label) : ""})`;
     if (step.text) {
       parameters[`t${i}`] = step.text.toLowerCase();
-      where.push(textFilter(`n${i}`, `t${i}`));
+      where.push(textFilter(`n${i}`, `t${i}`, dialect));
     }
     if (i < spec.nodes.length - 1) {
       const type = spec.rels[i]?.type;

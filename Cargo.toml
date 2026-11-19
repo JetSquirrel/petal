@@ -9,6 +9,9 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[dev-dependencies]
+futures = { version = "0.3", default-features = false, features = ["executor"] }
+
 [dependencies]
 nsh-core = "0.6.0"
 serde_json = "1"
@@ -17,3 +20,8 @@ serde_json = "1"
 # not in the web build (its in-browser build is experimental and in-memory only).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hawdb = { version = "0.34", default-features = false }
+# Bolt, the binary protocol of Memgraph (and Neo4j): a client of its own, on a Tokio runtime of its own.
+# 0.9 decodes small negative integers right (0.8 reads -1 as 255) and speaks Bolt 4.3 and 4.4.
+neo4rs = "=0.9.0-rc.11"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
+chrono = { version = "0.4", default-features = false }

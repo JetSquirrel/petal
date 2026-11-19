@@ -299,4 +299,87 @@ export function appTests(platform: "windows" | "macos") {
     await app.press("id:expand-DEPENDS_ON-in");
     await app.waitFor("text:Added 4 nodes and 4 relationships.");
   });
+
+  // --- A Gremlin Server played by the test, over HTTP ---------------------------------------------------
+
+  function gremlinServer(seen: string[]) {
+    const T = (v: string) => ({ "@type": "g:T", "@value": v });
+    const D = (v: string) => ({ "@type": "g:Direction", "@value": v });
+    const long = (n: number) => ({ "@type": "g:Int64", "@value": n });
+    const gmap = (...kv: unknown[]) => ({ "@type": "g:Map", "@value": kv });
+    const list = (...items: unknown[]) => ({ "@type": "g:List", "@value": items });
+    const ok = (data: unknown) => ({ body: { requestId: "r", status: { code: 200, message: "", attributes: {} }, result: { data, meta: {} } } });
+    const marko = gmap(T("id"), long(1), T("label"), "person", "name", list("marko"), "age", list({ "@type": "g:Int32", "@value": 29 }));
+    const lop = gmap(T("id"), long(3), T("label"), "software", "name", list("lop"), "lang", list("java"));
+    const created = gmap(T("id"), long(9), T("label"), "created", D("OUT"), gmap(T("id"), long(1), T("label"), "person"), D("IN"), gmap(T("id"), long(3), T("label"), "software"), "weight", { "@type": "g:Double", "@value": 0.4 });
+    return {
+      "POST http://localhost:8182/gremlin": (req: { headers: Record<string, string>; body?: string | null }) => {
+        const auth = req.headers.authorization ?? req.headers.Authorization ?? "";
+        if (auth !== "Basic " + Buffer.from("stephen:password").toString("base64")) {
+          return { status: 401, body: { requestId: "r", status: { code: 401, message: "Username and/or password are incorrect" }, result: { data: null } } };
+        }
+        const script: string = JSON.parse(req.body ?? "{}").gremlin;
+        seen.push(script);
+        if (script === "g.inject(1)") return ok(list({ "@type": "g:Int32", "@value": 1 }));
+        if (script.startsWith("g.V().limit(200000).groupCount()")) return ok(list(gmap("person", long(4), "software", long(2))));
+        if (script.startsWith("g.E().limit(200000).groupCount()")) return ok(list(gmap("created", long(4), "knows", long(2))));
+        if (script.startsWith("g.E().limit(2000).project(")) return ok(list(gmap("f", "person", "t", "created", "e", "software"), gmap("f", "person", "t", "knows", "e", "person")));
+        if (script.startsWith("g.V().hasLabel('person').as('n0').outE('created')")) return ok(list(gmap("n0", marko, "r0", created, "n1", lop)));
+        if (script.startsWith("g.V(1L, 3L).outE().where(")) return ok(list(created));
+        if (script.startsWith("g.V(3L, 1L).outE().where(")) return ok(list(created));
+        return { status: 500, body: { requestId: "r", status: { code: 597, message: `No such property: ${script}` }, result: { data: null } } };
+      },
+    };
+  }
+
+  async function connectGremlin(app: Awaited<ReturnType<typeof open>>, password: string) {
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:connect-kind-gremlin");
+    await app.clear("id:connect-gremlin-url");
+    await app.type("id:connect-gremlin-url", "http://localhost:8182");
+    await app.type("id:connect-gremlin-user", "stephen");
+    await app.type("id:connect-password", password);
+    await app.press("id:connect-submit");
+  }
+
+  test("connects to a Gremlin server over HTTP and searches it", async () => {
+    const seen: string[] = [];
+    const app = await open("./App.tsx", { ...DESKTOP, network: gremlinServer(seen) });
+    await app.waitFor("id:example-Person");
+    await connectGremlin(app, "password");
+    await app.waitFor("text:Connected to Gremlin · localhost:8182.");
+    for (const t of ["person", "software", "created", "knows"]) expect(app.texts()).toContain(t);
+
+    await app.type("id:search", "person created software");
+    await app.submit("id:search");
+    await app.waitFor("text:Added 2 nodes and 1 relationship.");
+    expect(seen).toContain(
+      "g.V().hasLabel('person').as('n0').outE('created').as('r0').inV().hasLabel('software').as('n1').limit(100).select('n0', 'r0', 'n1').by(elementMap())",
+    );
+    expect(JSON.parse(app.storage().connection).gremlin).toEqual({ url: "http://localhost:8182", user: "stephen", traversal: "g" });
+  });
+
+  test("a Gremlin server's refusal shows in the dialog", async () => {
+    const app = await open("./App.tsx", { ...DESKTOP, network: gremlinServer([]) });
+    await app.waitFor("id:example-Person");
+    await connectGremlin(app, "nope");
+    await app.waitFor("id:connect-error");
+    expect(app.texts()).toContain("The user name or password is wrong.");
+  });
+
+  // --- Memgraph: Bolt goes through the Rust crate; a closed port is reported --------------------------------
+
+  test("a Memgraph that isn't there is reported in the dialog", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:connect-kind-memgraph");
+    await app.clear("id:connect-bolt-url");
+    await app.type("id:connect-bolt-url", "bolt://127.0.0.1:1");
+    await app.press("id:connect-submit");
+    await app.waitFor("id:connect-error", { timeout: 30000 });
+    expect(app.texts().some((t) => t.startsWith("Couldn't reach 127.0.0.1:1."))).toBe(true);
+  });
 }

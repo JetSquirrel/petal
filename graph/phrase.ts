@@ -12,12 +12,15 @@
  * the node before them must contain. Quotes keep words together.
  */
 import { looksLikeCypher, orient } from "./cypher";
+import { looksLikeGremlin } from "./gremlin";
 import { looksLikeNgql } from "./nebula";
 import type { NodeStep, QueryLanguage, Schema, SearchSpec } from "./source";
 
 /** Whether text reads as a statement of the language (Cypher when the source runs none, to say it can't). */
 export function looksLikeQuery(text: string, language: QueryLanguage): boolean {
-  return language === "nGQL" ? looksLikeNgql(text) : looksLikeCypher(text);
+  if (language === "nGQL") return looksLikeNgql(text);
+  if (language === "Gremlin") return looksLikeGremlin(text);
+  return looksLikeCypher(text);
 }
 
 export interface Suggestion {

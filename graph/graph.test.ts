@@ -222,3 +222,76 @@ test("reads HawDB rows and filters them by text", () => {
   const kept = filterRows(res.cells, res.columns, [undefined, "inê"], 10);
   expect(kept.length).toBe(1);
 });
+
+// --- Memgraph ---------------------------------------------------------------------------------------------
+
+import { boltUri } from "./memgraph";
+
+test("maps Memgraph addresses to Bolt URIs and uses its dialect", () => {
+  expect(boltUri("localhost")).toBe("bolt://localhost:7687");
+  expect(boltUri("db.example.com:7688")).toBe("bolt://db.example.com:7688");
+  expect(boltUri("neo4j+s://abc.memgraph.cloud")).toBe("bolt+s://abc.memgraph.cloud:7687");
+  expect(() => boltUri("http://x")).toThrow();
+  expect(searchStatement({ kind: "text", term: "Ada" }, 5, schema, "memgraph").statement).toBe(
+    "MATCH (n) WHERE any(x IN values(n) WHERE toLower(toStringOrNull(x)) CONTAINS $term) RETURN n LIMIT 5",
+  );
+});
+
+// --- Gremlin ----------------------------------------------------------------------------------------------
+
+import {
+  collectGraph,
+  decodeGraphSON,
+  gremlinAmong,
+  gremlinEndpoint,
+  gremlinExpand,
+  gremlinSearch,
+  gremlinString,
+  idLiteral,
+  looksLikeGremlin,
+  newCollected,
+} from "./gremlin";
+
+const T = (v: string) => ({ "@type": "g:T", "@value": v });
+const D = (v: string) => ({ "@type": "g:Direction", "@value": v });
+const long = (n: number) => ({ "@type": "g:Int64", "@value": n });
+const gmap = (...kv: unknown[]) => ({ "@type": "g:Map", "@value": kv });
+
+test("builds Gremlin traversals that end in elementMap and keep ID types", () => {
+  expect(gremlinSearch(parsePhrase("Person WORKS_AT Company", schema)!, 20, schema).script).toBe(
+    "g.V().hasLabel('Person').as('n0').outE('WORKS_AT').as('r0').inV().hasLabel('Company').as('n1').limit(20).select('n0', 'r0', 'n1').by(elementMap())",
+  );
+  const text = gremlinSearch(parsePhrase("Person Inês", schema)!, 20, schema);
+  expect(text.script).toBe("g.V().hasLabel('Person').limit(5000).elementMap()");
+  expect(text.text).toEqual(["Inês"]);
+  const literals = new Map([["4", "4L"], ["a'b", "'a\\'b'"]]);
+  expect(gremlinExpand(["4"], { type: "KNOWS", direction: "in", limit: 9 }, literals)).toBe(
+    "g.V(4L).as('n').inE('KNOWS').as('r').outV().as('m').limit(9).select('n', 'r', 'm').by(elementMap())",
+  );
+  expect(gremlinAmong(["4", "a'b"], literals)).toBe("g.V(4L, 'a\\'b').outE().where(inV().hasId(within(4L, 'a\\'b'))).elementMap()");
+  // A quote and a backslash are both escaped: it's \ ok → 'it\'s \\ ok'.
+  expect(gremlinString("it's \\ ok")).toBe("'it\\'s \\\\ ok'");
+  expect(idLiteral(decodeGraphSON({ "@type": "g:UUID", "@value": "6f1e" }))).toBe("UUID.fromString('6f1e')");
+  expect(looksLikeGremlin("g.V().limit(3)")).toBe(true);
+  expect(looksLikeGremlin("Person KNOWS")).toBe(false);
+  expect(parsePhrase("g.V().has('name', 'x')", schema, "Gremlin")?.kind).toBe("raw");
+  expect(gremlinEndpoint("localhost")).toBe("ws://localhost:8182/gremlin");
+  expect(gremlinEndpoint("https://db.cluster.neptune.amazonaws.com:8182")).toBe("https://db.cluster.neptune.amazonaws.com:8182/gremlin");
+  expect(() => gremlinEndpoint("bolt://x")).toThrow();
+});
+
+test("reads GraphSON 3: elementMap vertices and edges, references, typed values", () => {
+  const vertex = gmap(T("id"), long(1), T("label"), "Person", "name", "Ada", "age", { "@type": "g:Int32", "@value": 36 });
+  const edge = gmap(T("id"), long(9), T("label"), "KNOWS", D("OUT"), gmap(T("id"), long(1), T("label"), "Person"), D("IN"), gmap(T("id"), long(2), T("label"), "Person"), "since", long(2019));
+  const out = newCollected();
+  collectGraph(decodeGraphSON({ "@type": "g:List", "@value": [gmap("n", vertex, "r", edge)] }), out);
+  expect(out.nodes.get("1")).toEqual({ id: "1", labels: ["Person"], properties: { name: { type: "String", value: "Ada" }, age: { type: "Integer", value: "36" } } });
+  expect(out.rels.get("9")).toEqual({ id: "9", type: "KNOWS", start: "1", end: "2", properties: { since: { type: "Integer", value: "2019" } } });
+  expect([...out.vertexRefs.keys()]).toEqual(["2"]);
+  expect(out.literals.get("2")).toBe("2L");
+
+  const refs = newCollected();
+  collectGraph(decodeGraphSON({ "@type": "g:Edge", "@value": { id: "e1", label: "KNOWS", outV: "a", inV: "b", outVLabel: "Person", inVLabel: "Person" } }), refs);
+  expect(refs.rels.get("e1")?.start).toBe("a");
+  expect([...refs.vertexRefs.keys()].sort()).toEqual(["a", "b"]);
+});

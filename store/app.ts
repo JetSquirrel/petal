@@ -5,7 +5,9 @@
 import { batch, computed, context, signal, Storage } from "nsh";
 import { createGraphController, type GraphController, type LabelMode, type LayoutKind } from "nsh-graph";
 import { DemoSource } from "../graph/demo";
+import { GremlinSource, type GremlinConnection } from "../graph/gremlin";
 import { HawDbSource } from "../graph/hawdb";
+import { MemgraphSource, type MemgraphConnection } from "../graph/memgraph";
 import { NebulaSource, type NebulaConnection } from "../graph/nebula";
 import { Neo4jSource, type Neo4jConnection } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
@@ -20,14 +22,18 @@ export type ConnectionState = "connecting" | "ready" | "error";
 /** What the connect dialog sends: a database to open, by kind. */
 export type ConnectionForm =
   | ({ kind: "neo4j" } & Neo4jConnection)
+  | ({ kind: "memgraph" } & MemgraphConnection)
   | ({ kind: "nebula" } & NebulaConnection)
+  | ({ kind: "gremlin" } & GremlinConnection)
   | { kind: "hawdb"; path: string; loadDemo: boolean };
 
 /** The connections Petal remembers, one per kind, never with a password. */
 export interface RememberedConnections {
   last?: ConnectionForm["kind"];
   neo4j?: Omit<Neo4jConnection, "password">;
+  memgraph?: Omit<MemgraphConnection, "password">;
   nebula?: Omit<NebulaConnection, "password">;
+  gremlin?: Omit<GremlinConnection, "password">;
   hawdb?: { path: string };
 }
 
@@ -149,6 +155,12 @@ export function createAppStore(options: AppStoreOptions = {}) {
       if (form.kind === "neo4j") {
         next = await Neo4jSource.connect(form);
         kept = { ...connections(), last: "neo4j", neo4j: { url: form.url.trim(), user: form.user, database: form.database.trim() || "neo4j" } };
+      } else if (form.kind === "memgraph") {
+        next = await MemgraphSource.connect(form);
+        kept = { ...connections(), last: "memgraph", memgraph: { url: form.url.trim(), user: form.user, database: form.database.trim() } };
+      } else if (form.kind === "gremlin") {
+        next = await GremlinSource.connect(form);
+        kept = { ...connections(), last: "gremlin", gremlin: { url: form.url.trim(), user: form.user, traversal: form.traversal.trim() || "g" } };
       } else if (form.kind === "nebula") {
         next = await NebulaSource.connect(form);
         kept = {

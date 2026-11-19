@@ -8,10 +8,12 @@
 
 use nsh_core::prelude::*;
 
+mod bolt;
+
 /// The crate's exports (`nsh.json` `"rust"`).
 #[native_module("petal/native")]
 fn native(registry: &mut Registry) {
-    registry.class::<HawDb>();
+    registry.class::<HawDb>().class::<bolt::BoltClient>();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

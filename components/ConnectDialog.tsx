@@ -1,6 +1,6 @@
 /**
- * Connecting to a database: Neo4j over its HTTP API, NebulaGraph through its HTTP gateway, or a HawDB
- * database embedded in Petal. Passwords are kept only while the app runs; the rest is remembered, per kind.
+ * Connecting to a database: Neo4j over its HTTP API, Memgraph over Bolt, NebulaGraph through its HTTP gateway,
+ * a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop), or a HawDB database embedded in Petal. Passwords are kept only while the app runs; the rest is remembered, per kind.
  */
 import { signal, Text, View } from "nsh";
 import { Dialog } from "nsh/base";
@@ -11,13 +11,17 @@ type Kind = ConnectionForm["kind"];
 
 const KINDS: { value: Kind; label: string }[] = [
   { value: "neo4j", label: "Neo4j" },
+  { value: "memgraph", label: "Memgraph" },
   { value: "nebula", label: "NebulaGraph" },
+  { value: "gremlin", label: "Gremlin" },
   { value: "hawdb", label: "HawDB" },
 ];
 
 const ABOUT: Record<Kind, string> = {
   neo4j: "Neo4j 5 or later, including Aura, over its HTTP API.",
+  memgraph: "Memgraph over Bolt, its binary protocol.",
   nebula: "NebulaGraph 3.5 or later, through its HTTP gateway (nebula-http-gateway).",
+  gremlin: "A Gremlin server: Apache TinkerPop, JanusGraph, HugeGraph or Amazon Neptune.",
   hawdb: "An embedded HawDB database: a folder on this computer that Petal opens itself.",
 };
 
@@ -31,7 +35,7 @@ export function ConnectDialog() {
       animation="fade"
       backdropClass="bg-scrim"
       class="m-auto gap-5 rounded-xl border border-border bg-popover p-5 shadow-xl"
-      style={{ width: 480, maxWidth: "94%" }}
+      style={{ width: 560, maxWidth: "94%" }}
       testID="connect-dialog"
     >
       <ConnectForm />
@@ -55,6 +59,16 @@ function ConnectForm() {
     user: signal(kept.neo4j?.user ?? "neo4j"),
     database: signal(kept.neo4j?.database ?? "neo4j"),
   };
+  const memgraph = {
+    url: signal(kept.memgraph?.url ?? "bolt://localhost:7687"),
+    user: signal(kept.memgraph?.user ?? ""),
+    database: signal(kept.memgraph?.database ?? ""),
+  };
+  const gremlin = {
+    url: signal(kept.gremlin?.url ?? "ws://localhost:8182/gremlin"),
+    user: signal(kept.gremlin?.user ?? ""),
+    traversal: signal(kept.gremlin?.traversal ?? "g"),
+  };
   const nebula = {
     gateway: signal(kept.nebula?.gateway ?? "http://localhost:8080"),
     graphd: signal(kept.nebula?.graphd ?? "graphd:9669"),
@@ -70,6 +84,10 @@ function ConnectForm() {
     switch (kind()) {
       case "neo4j":
         return { kind: "neo4j", url: neo4j.url(), user: neo4j.user(), password: password(), database: neo4j.database() };
+      case "memgraph":
+        return { kind: "memgraph", url: memgraph.url(), user: memgraph.user(), password: password(), database: memgraph.database() };
+      case "gremlin":
+        return { kind: "gremlin", url: gremlin.url(), user: gremlin.user(), password: password(), traversal: gremlin.traversal() };
       case "nebula":
         return { kind: "nebula", gateway: nebula.gateway(), graphd: nebula.graphd(), user: nebula.user(), password: password(), space: nebula.space() };
       case "hawdb":
@@ -123,6 +141,34 @@ function ConnectForm() {
             </Field>
             <Field label="Database" class="flex-1">
               <TextField value={neo4j.database()} onChange={neo4j.database.set} onSubmit={connect} verbatim testID="connect-database" accessibilityLabel="Database" />
+            </Field>
+          </View>
+        </If>
+
+        <If when={kind() === "memgraph"}>
+          <Field label="Address" description="bolt://host:7687, or bolt+s:// for TLS (Memgraph Cloud)">
+            <TextField value={memgraph.url()} onChange={memgraph.url.set} onSubmit={connect} verbatim autoComplete="url" testID="connect-bolt-url" accessibilityLabel="Address" />
+          </Field>
+          <View class="flex-row gap-3">
+            <Field label="User" description="Empty when authentication is off" class="flex-1">
+              <TextField value={memgraph.user()} onChange={memgraph.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-bolt-user" accessibilityLabel="User" />
+            </Field>
+            <Field label="Database" description="Empty for the default" class="flex-1">
+              <TextField value={memgraph.database()} onChange={memgraph.database.set} onSubmit={connect} verbatim testID="connect-bolt-database" accessibilityLabel="Database" />
+            </Field>
+          </View>
+        </If>
+
+        <If when={kind() === "gremlin"}>
+          <Field label="Address" description="ws://host:8182/gremlin or wss:// for any Gremlin Server; https://…:8182/gremlin for HTTP (Neptune)">
+            <TextField value={gremlin.url()} onChange={gremlin.url.set} onSubmit={connect} verbatim autoComplete="url" testID="connect-gremlin-url" accessibilityLabel="Address" />
+          </Field>
+          <View class="flex-row gap-3">
+            <Field label="User" description="Empty when authentication is off" class="flex-1">
+              <TextField value={gremlin.user()} onChange={gremlin.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-gremlin-user" accessibilityLabel="User" />
+            </Field>
+            <Field label="Traversal source" description="g, or the server's name for it (HugeGraph: __g_hugegraph)" class="flex-1">
+              <TextField value={gremlin.traversal()} onChange={gremlin.traversal.set} onSubmit={connect} verbatim testID="connect-traversal" accessibilityLabel="Traversal source" />
             </Field>
           </View>
         </If>
