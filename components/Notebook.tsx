@@ -4,10 +4,11 @@
  * run again, be edited, bring its result into the scene, fold, or close. Ctrl/⌘ + Enter runs.
  */
 import { colorScheme, computed, keymap, Scroll, signal, Text, View } from "nsh";
-import { DataTable, Editor } from "nsh/base";
+import { DataTable, Editor, type EditorDecoration, type EditorRef, type EditorToken } from "nsh/base";
 import { createGraphController, GraphView } from "nsh-graph";
 import { nodeCaption, valueKind, valueText, type DbNode, type DbRel } from "../graph/model";
-import type { QueryLanguage } from "../graph/source";
+import { completionsAt, lineStarts, positionOf, tokenizeQuery, type TokenKind } from "../graph/queryLang";
+import type { QueryLanguage, Schema } from "../graph/source";
 import { useStore } from "../store/app";
 import { cellText, frameSummary, frameTable, tableRecords, type Frame, type FrameView } from "../store/notebook";
 import { paletteColor } from "../store/perspective";
@@ -25,11 +26,117 @@ const VIEWS: { value: FrameView; label: string; icon: "graph" | "table" | "code"
 const RAW_ROWS = 500;
 const FRAME_HEIGHT = 380;
 
-/** The editor's language name for a source's query language: its highlighting. */
+/** The editor's language name for a source's query language: its comments, brackets and indentation (Petal colors the text itself). */
 function editorLanguage(language: QueryLanguage): string | null {
-  if (language === "Cypher") return "cypher";
+  if (language === "Cypher" || language === "nGQL") return "cypher";
   if (language === "Gremlin") return "groovy";
   return null;
+}
+
+/** How the editor colors each kind of Petal's tokens. */
+const TOKEN_COLORS: Record<TokenKind, { token: EditorToken; class?: string }> = {
+  keyword: { token: "keyword", class: "font-semibold" },
+  function: { token: "built" },
+  label: { token: "title" },
+  property: { token: "attr" },
+  string: { token: "string" },
+  number: { token: "number" },
+  comment: { token: "comment", class: "italic" },
+  parameter: { token: "attr", class: "italic" },
+};
+
+/** The decorations that color `text` as a query in `language` (a search phrase without one). */
+function highlight(text: string, language: QueryLanguage, schema: Schema): EditorDecoration[] {
+  const starts = lineStarts(text);
+  return tokenizeQuery(text, language, schema).map((t) => ({
+    range: { start: positionOf(starts, t.start), end: positionOf(starts, t.end) },
+    ...TOKEN_COLORS[t.kind],
+  }));
+}
+
+/** The property keys of what the scene and the notebook's results hold: what completes after `.`. */
+const KEY_SCAN = 2000;
+function usePropertyKeys() {
+  const store = useStore();
+  return computed(() => {
+    const keys = new Set<string>();
+    let seen = 0;
+    const take = (props: Record<string, unknown>) => {
+      for (const k of Object.keys(props)) keys.add(k);
+    };
+    for (const n of store.scene.nodes().values()) {
+      if (seen++ > KEY_SCAN) break;
+      take(n.properties);
+    }
+    for (const f of store.notebook.frames()) {
+      for (const n of f.result?.nodes ?? []) {
+        if (seen++ > KEY_SCAN) break;
+        take(n.properties);
+      }
+      for (const r of f.result?.rels ?? []) {
+        if (seen++ > KEY_SCAN) break;
+        take(r.properties);
+      }
+    }
+    return [...keys].sort();
+  });
+}
+
+/**
+ * The notebook's code editor: Petal's highlighting for the source's language and, while editable, completion
+ * of keywords, functions, the schema's labels and types, and property keys.
+ */
+function QueryCode(props: {
+  value: string;
+  onChange?: (value: string) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+  lineNumbers?: boolean;
+  minRows?: number;
+  maxRows?: number;
+  autoFocus?: boolean;
+  accessibilityLabel: string;
+  testID?: string;
+  class?: string;
+}) {
+  const store = useStore();
+  const keys = usePropertyKeys();
+  const language = () => store.source().language;
+  const decorations = computed(() => highlight(props.value, language(), store.schema()));
+  let editor: EditorRef | undefined;
+  const triggers = () => (language() === "Gremlin" ? ["."] : language() ? [":", "."] : []);
+  return (
+    <Editor
+      ref={(r) => (editor = r)}
+      value={props.value}
+      onChange={(e) => props.onChange?.(e.value)}
+      readOnly={props.readOnly}
+      language={editorLanguage(language())}
+      highlighting={false}
+      decorations={decorations()}
+      placeholder={props.placeholder}
+      lineNumbers={props.lineNumbers ?? false}
+      folding={false}
+      activeLine={false}
+      indentGuides={false}
+      scrollBeyondLastLine={false}
+      minRows={props.minRows ?? 1}
+      maxRows={props.maxRows}
+      softWrap
+      autoFocus={props.autoFocus}
+      completion={!props.readOnly}
+      completionTriggerCharacters={triggers()}
+      onCompletionRequest={(req) => {
+        const items = completionsAt(props.value, req.offset, req.queryStart, { language: language(), schema: store.schema(), propertyKeys: keys() });
+        // A bare word with nothing typed yet (a space typed after a word) asks for nothing.
+        if (req.trigger === "typing" && req.query === "") return editor?.hideCompletions();
+        editor?.presentCompletions(req.id, items);
+      }}
+      accessibilityLabel={props.accessibilityLabel}
+      testID={props.testID}
+      class={props.class}
+    />
+  );
 }
 
 const runKeys = (e: { key: string; modifiers: { control: boolean; platform: boolean } }) => e.key === "Enter" && (e.modifiers.control || e.modifiers.platform);
@@ -77,18 +184,12 @@ function QueryEditor() {
           if (runKeys(e)) nb.runDraft();
         }}
       >
-        <Editor
+        <QueryCode
           value={nb.draft()}
-          onChange={(e) => nb.draft.set(e.value)}
-          language={editorLanguage(language())}
+          onChange={(v) => nb.draft.set(v)}
           placeholder={hint()}
           lineNumbers={nb.draft().includes("\n")}
-          folding={false}
-          activeLine={false}
-          indentGuides={false}
-          minRows={1}
           maxRows={14}
-          softWrap
           accessibilityLabel="Query"
           testID="notebook-input"
           class="flex-1"
@@ -153,43 +254,35 @@ function FrameCard(props: { frame: Frame; index: number }) {
 
   return (
     <Surface class="overflow-hidden p-0" testID={`frame-${props.index}`}>
-      <View class="flex-row items-start gap-2 border-b border-border px-3 py-2">
-        <If when={f().by === "assistant"}>
-          <Badge text="Assistant" variant="outline" class="mt-0.5" />
-        </If>
+      <View class="flex-row items-start gap-2 border-b border-border bg-muted/40 px-3 py-2">
+        <Text class="pt-[3px] font-mono text-sm text-muted-foreground">$</Text>
         <If
           when={editing()}
           else={
-            <View role="button" accessibilityLabel={`Edit: ${f().text}`} onPress={startEdit} class="flex-1 rounded-md px-1 py-0.5 hover:bg-accent" testID={tid("query")}>
-              <Text class="font-mono text-sm text-foreground line-clamp-3">{f().text}</Text>
+            <View class="flex-1" testID={tid("query")}>
+              <QueryCode value={f().text} readOnly maxRows={6} accessibilityLabel={`Query: ${f().text}`} testID={tid("code")} class="bg-transparent" />
             </View>
           }
         >
           <View
-            class="flex-1"
+            class="flex-1 rounded-md border border-ring"
             captureKeys={["mod+enter", "escape"]}
             onKeyDown={(e) => {
               if (runKeys(e)) runEdited();
               else if (e.key === "Escape") editing.set(false);
             }}
           >
-            <Editor
-              value={text()}
-              onChange={(e) => text.set(e.value)}
-              language={editorLanguage(store.source().language)}
-              lineNumbers={false}
-              folding={false}
-              minRows={1}
-              maxRows={10}
-              softWrap
-              autoFocus
-              accessibilityLabel="Edit the query"
-              testID={tid("edit")}
-            />
+            <QueryCode value={text()} onChange={(v) => text.set(v)} maxRows={10} autoFocus accessibilityLabel="Edit the query" testID={tid("edit")} />
           </View>
           <IconButton size="sm" icon="play" label="Run the edited query" onPress={runEdited} testID={tid("run-edited")} />
         </If>
         <View class="flex-row items-center gap-0.5">
+          <If when={f().by === "assistant"}>
+            <Badge text="Assistant" variant="outline" class="mr-1" />
+          </If>
+          <If when={!editing()}>
+            <IconButton size="sm" icon="pencil" label="Edit the query" onPress={startEdit} testID={tid("edit-start")} />
+          </If>
           <IconButton size="sm" icon="relayout" label="Run again" disabled={f().status === "running"} onPress={() => nb.rerun(f().id)} testID={tid("rerun")} />
           <IconButton
             size="sm"
