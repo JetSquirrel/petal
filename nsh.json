@@ -12,6 +12,6 @@
     "minSize": { "width": 720, "height": 520 }
   },
   "dependencies": {
-    "nsh-graph": "^0.1.0"
+    "nsh-graph": "^0.1.1"
   }
 }
