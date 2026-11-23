@@ -295,3 +295,63 @@ test("reads GraphSON 3: elementMap vertices and edges, references, typed values"
   expect(refs.rels.get("e1")?.start).toBe("a");
   expect([...refs.vertexRefs.keys()].sort()).toEqual(["a", "b"]);
 });
+
+// --- Amazon Neptune ---------------------------------------------------------------------------------------
+
+import { fromNeptune, joinSecret, neptuneBase, regionOf, signV4, splitSecret } from "./neptune";
+import { neighborhoodStatement, relationshipsAmongStatement } from "./cypher";
+
+test("signs requests as AWS's Signature Version 4 test suite has them", () => {
+  const creds = { accessKeyId: "AKIDEXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY" };
+  const now = new Date(Date.UTC(2015, 7, 30, 12, 36, 0));
+  const sign = (method: string) => signV4({ method, url: "https://example.amazonaws.com/", headers: {}, body: "" }, creds, "us-east-1", "service", now);
+  // get-vanilla and post-vanilla
+  expect(sign("GET").Authorization).toBe(
+    "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31",
+  );
+  expect(sign("POST").Authorization).toBe(
+    "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=5da7c1a2acd57cee7505fc6676e4e544621c30862966e37dddb68e92efbe5d6b",
+  );
+  const temp = signV4({ method: "POST", url: "https://db.cluster-x.eu-west-1.neptune.amazonaws.com:8182/openCypher", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "query=RETURN%201" }, { ...creds, sessionToken: "tok" }, "eu-west-1", "neptune-db", now);
+  expect(temp["X-Amz-Security-Token"]).toBe("tok");
+  expect(temp["X-Amz-Date"]).toBe("20150830T123600Z");
+  expect(temp.Authorization).toContain("/eu-west-1/neptune-db/aws4_request, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=");
+});
+
+test("maps Neptune endpoints, Regions and credentials", () => {
+  expect(neptuneBase("my-db.cluster-abc.us-east-1.neptune.amazonaws.com")).toBe("https://my-db.cluster-abc.us-east-1.neptune.amazonaws.com:8182");
+  expect(neptuneBase("https://host:8183/openCypher")).toBe("https://host:8183");
+  expect(() => neptuneBase("bolt://host")).toThrow();
+  expect(regionOf("https://my-db.cluster-abc.ap-southeast-2.neptune.amazonaws.com:8182")).toBe("ap-southeast-2");
+  expect(regionOf("https://my-db.cluster-abc.cn-north-1.neptune.amazonaws.com.cn:8182")).toBe("cn-north-1");
+  expect(regionOf("https://localhost:8182")).toBe(null);
+  expect(splitSecret(joinSecret("secret", "token"))).toEqual({ secret: "secret", sessionToken: "token" });
+  expect(splitSecret(joinSecret("secret", ""))).toEqual({ secret: "secret", sessionToken: "" });
+});
+
+test("writes Neptune's openCypher: id() for IDs, toString() in text filters", () => {
+  expect(searchStatement({ kind: "text", term: "Ada" }, 5, schema, "neptune").statement).toBe(
+    "MATCH (n) WHERE any(k IN keys(n) WHERE toLower(toString(n[k])) CONTAINS $term) RETURN n LIMIT 5",
+  );
+  expect(expandStatement(["a"], { type: "KNOWS", direction: "out", limit: 3 }, "neptune").statement).toBe(
+    "MATCH (n)-[r:`KNOWS`]->(m) WHERE id(n) IN $ids RETURN n, r, m LIMIT 3",
+  );
+  expect(relationshipsAmongStatement(["a"], "neptune").statement).toBe("MATCH (a)-[r]->(b) WHERE id(a) IN $ids AND id(b) IN $ids RETURN r");
+  expect(neighborhoodStatement("a", "neptune").statement).toContain("WHERE id(n) = $id");
+  expect(expandStatement(["a"], { limit: 3 }).statement).toContain("elementId(n)");
+});
+
+test("reads Neptune's openCypher results: nodes, relationships and paths anywhere in a row", () => {
+  const ada = { "~id": "1", "~entityType": "node", "~labels": ["Person"], "~properties": { name: "Ada", born: 1815 } };
+  const acme = { "~id": "2", "~entityType": "node", "~labels": ["Company"], "~properties": {} };
+  const works = { "~id": "e1", "~entityType": "relationship", "~start": "1", "~end": "2", "~type": "WORKS_AT", "~properties": { since: 1.5 } };
+  const res = fromNeptune({ results: [{ p: [ada, works, acme], names: ["a", "b"], n: null }] });
+  expect(res.fields).toEqual(["p", "names", "n"]);
+  expect(res.rows[0][0]).toEqual({ type: "Text", kind: "Path", value: "path of 1" });
+  expect(res.rows[0][1]).toEqual({ type: "List", value: [{ type: "String", value: "a" }, { type: "String", value: "b" }] });
+  expect(res.nodes.map((n) => n.id)).toEqual(["1", "2"]);
+  expect(res.nodes[0].properties.born).toEqual({ type: "Integer", value: "1815" });
+  expect(res.rels).toEqual([{ id: "e1", type: "WORKS_AT", start: "1", end: "2", properties: { since: { type: "Float", value: 1.5 } } }]);
+  expect(fromNeptune({ results: [{ n: ada }] }).rows[0][0]).toEqual({ type: "Text", kind: "Node", value: "(:Person)" });
+  expect(fromNeptune({ results: [] })).toEqual({ fields: [], rows: [], nodes: [], rels: [] });
+});

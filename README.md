@@ -2,10 +2,10 @@
 
 **Explore your graph, one connection at a time.**
 
-Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **NebulaGraph** and **HawDB**. It is a
-[Native Shell (NSH)](https://nsh.dev) app written in TSX, with a small Rust crate that embeds HawDB, and it draws the
-graph with [nsh-graph](../nsh-graph). It runs as a native app on Windows, macOS and Linux, and on the web (without
-HawDB).
+Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **Amazon Neptune**,
+**NebulaGraph**, Gremlin servers and **HawDB**. It is a [Native Shell (NSH)](https://nsh.dev) app written in TSX, with
+a small Rust crate that embeds HawDB, and it draws the graph with [nsh-graph](../nsh-graph). It runs as a native app
+on Windows, macOS and Linux, and on the web (without HawDB).
 
 You search with phrases instead of queries, bring in neighbors one double-click at a time, and set how each category
 looks. When you do want queries, the notebook keeps each one with its result as a graph, a table and raw rows. An
@@ -69,7 +69,7 @@ HawDB, which takes a few minutes.
 The database button at the top right (Ctrl/⌘ + O) opens the connection manager. It works the way a database
 client does: saved connections are listed on the left, and you can keep as many as you like, of any database.
 
-- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, NebulaGraph, any Gremlin
+- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, Amazon Neptune, NebulaGraph, any Gremlin
   server) and HawDB, which runs on this computer. Pick one to fill in its settings.
 - **Test** opens the database, reads its schema, reports what it found and closes it again, without leaving the
   graph you're exploring.
@@ -118,6 +118,26 @@ Some details of how Petal works with NebulaGraph:
 - **Version.** Pattern and text searches scan with `MATCH`, which needs NebulaGraph 3.5 or later.
 - **Words you type.** nGQL over the gateway has no parameters, so typed words are escaped into string literals, and
   VIDs are checked against the space's VID type.
+
+### Amazon Neptune
+
+Petal talks to Neptune Database over its openCypher HTTPS endpoint (`POST /openCypher`, engine 1.1.1 and later), so
+search, expansion, the notebook and the MCP tools all run openCypher. Give Petal:
+
+- **Endpoint**: the cluster's (or an instance's) endpoint, such as
+  `https://my-db.cluster-xxxx.us-east-1.neptune.amazonaws.com:8182`. Petal adds `https://` and `:8182` if they're
+  missing.
+- **Access key ID**, **Secret access key** and, for temporary credentials, a **Session token**, when the cluster has
+  IAM database authentication on. Petal signs each request with Signature Version 4 (service `neptune-db`). Leave the
+  key empty when IAM authentication is off. The secret and token are kept only while Petal runs, like passwords.
+- **Region**: empty to read it from the endpoint's name.
+
+Neptune answers only inside its VPC, so connect from a machine there, over a VPN, or through an SSH tunnel. With IAM
+on, the signed `Host` has to be the cluster's name, so tunnel to it under that name (a hosts-file entry) rather than
+`localhost`. Neptune keeps no count store and has no `db.labels()`, so the schema is read from up to 200,000 nodes
+and relationships; past that, counts are left out. Integers past 2^53 lose precision, because Neptune returns plain
+JSON numbers. To use Gremlin on Neptune instead, the Gremlin driver reaches it over `https://…:8182/gremlin`, without
+IAM signing.
 
 ### HawDB
 
@@ -197,7 +217,8 @@ store/                state and actions: app.ts (connections, search, expand), s
 mcp/                  MCP with no UI: protocol.ts (JSON-RPC over Streamable HTTP, the token and origin checks) and
                       tools.ts (the tools, and the check for queries that write)
 graph/                data access, with no UI: model.ts, source.ts (the GraphSource interface), phrase.ts (search
-                      phrases and suggestions), and one module per database: neo4j.ts and cypher.ts, nebula.ts
+                      phrases and suggestions), and one module per database: neo4j.ts and cypher.ts, neptune.ts (openCypher
+                      over HTTPS and SigV4), nebula.ts
                       (gateway client and nGQL), hawdb.ts (HawDB's Cypher subset), demo.ts and demoData.ts
 ```
 

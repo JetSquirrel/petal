@@ -550,6 +550,74 @@ export function appTests(platform: "windows" | "macos") {
     expect(app.texts()).toContain("The user name or password is wrong.");
   });
 
+  // --- Amazon Neptune played by the test: openCypher over HTTPS, signed with SigV4 --------------------------
+
+  const NEPTUNE = "https://db.cluster-abc.us-east-1.neptune.amazonaws.com:8182";
+
+  function neptuneServer(seen: string[]) {
+    const ada = { "~id": "p1", "~entityType": "node", "~labels": ["Person"], "~properties": { name: "Ada" } };
+    const acme = { "~id": "c1", "~entityType": "node", "~labels": ["Company"], "~properties": { name: "Acme" } };
+    const works = { "~id": "e1", "~entityType": "relationship", "~start": "p1", "~end": "c1", "~type": "WORKS_AT", "~properties": {} };
+    const ok = (results: unknown[]) => ({ body: { results } });
+    return {
+      [`POST ${NEPTUNE}/openCypher`]: (req: { headers: Record<string, string>; body?: string | null }) => {
+        const auth = req.headers.authorization ?? req.headers.Authorization ?? "";
+        if (!auth.startsWith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") || !auth.includes("/us-east-1/neptune-db/aws4_request")) {
+          return { status: 403, body: { requestId: "r", code: "AccessDeniedException", detailedMessage: "Missing Authentication Token" } };
+        }
+        const form = new Map((req.body ?? "").split("&").map((kv) => kv.split("=").map((s) => decodeURIComponent(s)) as [string, string]));
+        const query = form.get("query") ?? "";
+        seen.push(query);
+        if (query === "RETURN 1 AS ok") return ok([{ ok: 1 }]);
+        if (query.includes("UNWIND labels(n) AS name")) return ok([{ name: "Person", count: 1 }, { name: "Company", count: 1 }]);
+        if (query.includes("RETURN type(r) AS name")) return ok([{ name: "WORKS_AT", count: 1 }]);
+        if (query.includes("RETURN DISTINCT labels(a) AS f")) return ok([{ f: ["Person"], t: "WORKS_AT", e: ["Company"] }]);
+        if (query.startsWith("MATCH p = (n0:`Person`)-[r0:`WORKS_AT`]->(n1:`Company`)")) return ok([{ p: [ada, works, acme] }]);
+        if (query.startsWith("MATCH (a)-[r]->(b) WHERE id(a) IN $ids")) return ok([{ r: works }]);
+        return { status: 400, body: { requestId: "r", code: "MalformedQueryException", detailedMessage: `Unexpected query: ${query}` } };
+      },
+    };
+  }
+
+  async function connectNeptune(app: Awaited<ReturnType<typeof open>>, keyId: string) {
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-neptune");
+    await app.type("id:connect-neptune-url", NEPTUNE);
+    if (keyId) {
+      await app.type("id:connect-neptune-key", keyId);
+      await app.type("id:connect-password", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY");
+      await app.type("id:connect-session-token", "session-token");
+    }
+    await app.press("id:connect-submit");
+  }
+
+  test("connects to Amazon Neptune with IAM credentials and searches it", async () => {
+    const seen: string[] = [];
+    const app = await open("./App.tsx", { ...DESKTOP, network: neptuneServer(seen) });
+    await app.waitFor("id:example-Person");
+    await connectNeptune(app, "AKIDEXAMPLE");
+    await app.waitFor("text:Connected to db.cluster-abc.us-east-1.neptune.amazonaws.com.");
+    for (const t of ["Person", "Company", "WORKS_AT"]) expect(app.texts()).toContain(t);
+
+    await app.clear("id:search");
+    await app.type("id:search", "Person WORKS_AT Company");
+    await app.submit("id:search");
+    await app.waitFor("text:Added 2 nodes and 1 relationship.");
+    expect(seen).toContain("MATCH p = (n0:`Person`)-[r0:`WORKS_AT`]->(n1:`Company`) RETURN p LIMIT 100");
+    const stored = app.storage().connections;
+    expect(JSON.parse(stored)[0].settings).toEqual({ kind: "neptune", url: NEPTUNE, region: "", accessKeyId: "AKIDEXAMPLE" });
+    expect(stored.includes("EXAMPLEKEY") || stored.includes("session-token")).toBe(false);
+  });
+
+  test("a Neptune cluster that wants IAM says so when Petal sends no key", async () => {
+    const app = await open("./App.tsx", { ...DESKTOP, network: neptuneServer([]) });
+    await app.waitFor("id:example-Person");
+    await connectNeptune(app, "");
+    await app.waitFor("id:connect-error");
+    expect(app.texts()).toContain("The cluster wants signed requests: it has IAM authentication on. Enter an access key and its secret.");
+  });
+
   // --- Memgraph: Bolt goes through the Rust crate; a closed port is reported --------------------------------
 
   test("a Memgraph that isn't there is reported in the dialog", async () => {

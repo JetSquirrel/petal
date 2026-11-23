@@ -9,6 +9,7 @@ import { GremlinSource } from "../graph/gremlin";
 import { HawDbSource } from "../graph/hawdb";
 import { MemgraphSource } from "../graph/memgraph";
 import { NebulaSource } from "../graph/nebula";
+import { NeptuneSource } from "../graph/neptune";
 import { Neo4jSource } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { parsePhrase, phraseOf } from "../graph/phrase";
@@ -192,6 +193,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
         return Neo4jSource.connect(form);
       case "memgraph":
         return MemgraphSource.connect(form);
+      case "neptune":
+        return NeptuneSource.connect(form);
       case "gremlin":
         return GremlinSource.connect(form);
       case "nebula":
