@@ -1,12 +1,13 @@
 /**
  * The connection manager, the way a database client has one: saved connections on the left, and on the right
  * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
- * Drivers: Neo4j over its HTTP API, Memgraph over Bolt, NebulaGraph through its HTTP gateway, a Gremlin server
- * (JanusGraph, HugeGraph, Neptune, TinkerPop), and HawDB embedded in Petal. Passwords are kept only while the
- * app runs.
+ * Drivers: Neo4j over its HTTP API, Memgraph over Bolt, Amazon Neptune over openCypher (signed with SigV4 when it
+ * uses IAM), NebulaGraph through its HTTP gateway, a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop),
+ * and HawDB embedded in Petal. Passwords (and AWS secrets) are kept only while the app runs.
  */
 import { signal, Scroll, Text, View } from "nsh";
 import { Dialog } from "nsh/base";
+import { joinSecret, splitSecret } from "../graph/neptune";
 import { useStore } from "../store/app";
 import { addressOf, defaultSettings, toForm, type ConnectionSettings, type DriverKind, type SavedConnection } from "../store/connections";
 import { Button, Field, Icon, IconButton, Row, SectionTitle, Separator, Switch, TextField } from "../ui";
@@ -30,6 +31,8 @@ interface Driver {
   /** Its fields, a row at a time. */
   rows: FieldSpec[][];
   password: boolean;
+  /** AWS credentials in place of a password: a secret access key and a session token (Neptune). */
+  awsSecret?: boolean;
 }
 
 const DRIVERS: Driver[] = [
@@ -60,6 +63,30 @@ const DRIVERS: Driver[] = [
       [
         { key: "user", label: "User", description: "Empty when authentication is off", testID: "connect-bolt-user", autoComplete: "username" },
         { key: "database", label: "Database", description: "Empty for the default", testID: "connect-bolt-database" },
+      ],
+    ],
+  },
+  {
+    kind: "neptune",
+    name: "Amazon Neptune",
+    mark: "AN",
+    blurb: "Neptune Database over openCypher, with IAM authentication or without.",
+    group: "server",
+    password: true,
+    awsSecret: true,
+    rows: [
+      [
+        {
+          key: "url",
+          label: "Endpoint",
+          description: "https://…neptune.amazonaws.com:8182, the cluster's or an instance's. Reached only inside its VPC.",
+          testID: "connect-neptune-url",
+          autoComplete: "url",
+        },
+      ],
+      [
+        { key: "accessKeyId", label: "Access key ID", description: "Empty when IAM authentication is off", testID: "connect-neptune-key" },
+        { key: "region", label: "Region", description: "Empty to read it from the endpoint", testID: "connect-neptune-region" },
       ],
     ],
   },
@@ -398,7 +425,39 @@ function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; on
               </View>
             )}
           </Each>
-          <If when={driver.password}>
+          <If when={driver.awsSecret}>
+            <View class="flex-row gap-3">
+              <Field label="Secret access key" description="Kept only while Petal runs, never saved." class="flex-1">
+                <TextField
+                  value={splitSecret(password()).secret}
+                  onChange={(v) => {
+                    password.set(joinSecret(v, splitSecret(password()).sessionToken));
+                    status.set(null);
+                  }}
+                  onSubmit={connect}
+                  masked
+                  verbatim
+                  testID="connect-password"
+                  accessibilityLabel="Secret access key"
+                />
+              </Field>
+              <Field label="Session token" description="For temporary credentials only." class="flex-1">
+                <TextField
+                  value={splitSecret(password()).sessionToken}
+                  onChange={(v) => {
+                    password.set(joinSecret(splitSecret(password()).secret, v));
+                    status.set(null);
+                  }}
+                  onSubmit={connect}
+                  masked
+                  verbatim
+                  testID="connect-session-token"
+                  accessibilityLabel="Session token"
+                />
+              </Field>
+            </View>
+          </If>
+          <If when={driver.password && !driver.awsSecret}>
             <Field label="Password" description="Kept only while Petal runs, never saved.">
               <TextField
                 value={password()}

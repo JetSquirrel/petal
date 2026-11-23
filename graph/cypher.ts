@@ -13,17 +13,20 @@ export interface Statement {
 const int = (n: number) => String(Math.max(1, Math.floor(n)));
 
 /** The Cypher of a database, where it differs from Neo4j's. */
-export type CypherDialect = "neo4j" | "memgraph";
+export type CypherDialect = "neo4j" | "memgraph" | "neptune";
 
 /**
  * `any property of v contains $p`, case-insensitively. Neo4j reads a property by a key it holds in a variable
- * (`v[k]`); Memgraph lists the values themselves (`values(v)`).
+ * (`v[k]`); Memgraph lists the values themselves (`values(v)`); Neptune's openCypher has no `toStringOrNull`.
  */
 function textFilter(v: string, p: string, dialect: CypherDialect): string {
-  return dialect === "memgraph"
-    ? `any(x IN values(${v}) WHERE toLower(toStringOrNull(x)) CONTAINS $${p})`
-    : `any(k IN keys(${v}) WHERE toLower(toStringOrNull(${v}[k])) CONTAINS $${p})`;
+  if (dialect === "memgraph") return `any(x IN values(${v}) WHERE toLower(toStringOrNull(x)) CONTAINS $${p})`;
+  if (dialect === "neptune") return `any(k IN keys(${v}) WHERE toLower(toString(${v}[k])) CONTAINS $${p})`;
+  return `any(k IN keys(${v}) WHERE toLower(toStringOrNull(${v}[k])) CONTAINS $${p})`;
 }
+
+/** A node's ID as text: `elementId()` in Neo4j 5 and Memgraph; Neptune's IDs are strings, read with `id()`. */
+const idOf = (v: string, dialect: CypherDialect) => (dialect === "neptune" ? `id(${v})` : `elementId(${v})`);
 
 /** The arrow of `(a)-[:type]-(b)` that the schema has, so a pattern follows the data's direction. */
 export function orient(schema: Schema, from: string | undefined, type: string | undefined, to: string | undefined): Direction {
@@ -72,24 +75,23 @@ export function searchStatement(spec: SearchSpec, limit: number, schema: Schema,
   };
 }
 
-export function expandStatement(ids: string[], options: ExpandOptions): Statement {
+export function expandStatement(ids: string[], options: ExpandOptions, dialect: CypherDialect = "neo4j"): Statement {
   return {
-    statement: `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}(m) WHERE elementId(n) IN $ids RETURN n, r, m LIMIT ${int(options.limit)}`,
+    statement: `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}(m) WHERE ${idOf("n", dialect)} IN $ids RETURN n, r, m LIMIT ${int(options.limit)}`,
     parameters: { ids },
   };
 }
 
-export function relationshipsAmongStatement(ids: string[]): Statement {
+export function relationshipsAmongStatement(ids: string[], dialect: CypherDialect = "neo4j"): Statement {
   return {
-    statement: "MATCH (a)-[r]->(b) WHERE elementId(a) IN $ids AND elementId(b) IN $ids RETURN r",
+    statement: `MATCH (a)-[r]->(b) WHERE ${idOf("a", dialect)} IN $ids AND ${idOf("b", dialect)} IN $ids RETURN r`,
     parameters: { ids },
   };
 }
 
-export function neighborhoodStatement(id: string): Statement {
+export function neighborhoodStatement(id: string, dialect: CypherDialect = "neo4j"): Statement {
   return {
-    statement:
-      "MATCH (n)-[r]-() WHERE elementId(n) = $id RETURN type(r) AS type, startNode(r) = n AS outgoing, count(*) AS count ORDER BY count DESC",
+    statement: `MATCH (n)-[r]-() WHERE ${idOf("n", dialect)} = $id RETURN type(r) AS type, startNode(r) = n AS outgoing, count(*) AS count ORDER BY count DESC`,
     parameters: { id },
   };
 }
