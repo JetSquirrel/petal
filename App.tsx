@@ -17,7 +17,7 @@ import { Scene } from "./components/Scene";
 import { focusSearch } from "./components/SearchBar";
 import { AppContext, createAppStore, type AppStore } from "./store/app";
 
-// The scene's force layout and drawing run in Rust (nsh-graph's native crate, listed in nsh.json): a big
+// The scene's force layout and drawing run in Rust (nsh-graph's Rust module, `nsh-graph/native`): a big
 // scene settles in seconds instead of minutes. Set before any graph view mounts.
 setNativeBackend(graphNative as unknown as NativeBackend);
 

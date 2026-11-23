@@ -1,4 +1,4 @@
 # `nsh run` and `nsh test` build the app's crates unoptimized; nsh-graph's layout and painter run about ten
 # times slower that way, so they are optimized even in dev builds.
-[profile.dev.package.nsh-graph-native]
+[profile.dev.package.nsh-graph]
 opt-level = 3
