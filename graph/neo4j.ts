@@ -161,7 +161,7 @@ export class Neo4jSource implements GraphSource {
     private mode: Mode,
   ) {
     const host = base.replace(/^https?:\/\//, "");
-    this.label = `${conn.database} · ${host}`;
+    this.label = `${host}/${conn.database}`;
     this.key = `neo4j:${base}/${conn.database}`;
   }
 

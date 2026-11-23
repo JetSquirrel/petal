@@ -7,8 +7,9 @@ import { shortcutText } from "./Scene";
 
 export function Header() {
   const store = useStore();
-  const status = () =>
-    store.connection() === "error" ? "Not connected" : store.connection() === "connecting" ? "Connecting…" : store.source().label;
+  /** The saved connection's name when it has one, or the database's own label. */
+  const name = () => store.connections().find((c) => c.id === store.activeConnection())?.name || store.source().label;
+  const status = () => (store.connection() === "error" ? "Not connected" : store.connection() === "connecting" ? "Connecting…" : name());
   return (
     <View class="h-14 flex-row items-center gap-3 border-b border-border bg-background px-3">
       <IconButton
@@ -32,7 +33,7 @@ export function Header() {
         trailingIcon="chevronDown"
         label={status()}
         onPress={() => store.connectOpen.set(true)}
-        accessibilityLabel={`Database: ${status()}. Connect to another`}
+        accessibilityLabel={`Database: ${status()}. Manage connections`}
         testID="connection"
         class="max-w-[260px]"
       />

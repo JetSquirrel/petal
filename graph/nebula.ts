@@ -199,7 +199,7 @@ export class NebulaSource implements GraphSource {
     private cookie: string,
     readonly vid: VidType,
   ) {
-    this.label = `${conn.space} · ${conn.graphd}`;
+    this.label = `${conn.graphd}/${conn.space}`;
     this.key = `nebula:${conn.graphd}/${conn.space}`;
   }
 

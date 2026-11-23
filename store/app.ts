@@ -5,37 +5,22 @@
 import { batch, computed, context, signal, Storage } from "nsh";
 import { createGraphController, type GraphController, type LabelMode, type LayoutKind } from "nsh-graph";
 import { DemoSource } from "../graph/demo";
-import { GremlinSource, type GremlinConnection } from "../graph/gremlin";
+import { GremlinSource } from "../graph/gremlin";
 import { HawDbSource } from "../graph/hawdb";
-import { MemgraphSource, type MemgraphConnection } from "../graph/memgraph";
-import { NebulaSource, type NebulaConnection } from "../graph/nebula";
-import { Neo4jSource, type Neo4jConnection } from "../graph/neo4j";
+import { MemgraphSource } from "../graph/memgraph";
+import { NebulaSource } from "../graph/nebula";
+import { Neo4jSource } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { phraseOf } from "../graph/phrase";
 import { selectionNodes } from "./graphSelection";
 import { EMPTY_SCHEMA, errorMessage, type Direction, type GraphSource, type Schema, type SearchSpec } from "../graph/source";
 import { createPerspective } from "./perspective";
 import { createScene } from "./scene";
+import { migrateRemembered, newConnectionId, tidy, type ConnectionForm, type ConnectionSettings, type SavedConnection } from "./connections";
 
 export type ConnectionState = "connecting" | "ready" | "error";
 
-/** What the connect dialog sends: a database to open, by kind. */
-export type ConnectionForm =
-  | ({ kind: "neo4j" } & Neo4jConnection)
-  | ({ kind: "memgraph" } & MemgraphConnection)
-  | ({ kind: "nebula" } & NebulaConnection)
-  | ({ kind: "gremlin" } & GremlinConnection)
-  | { kind: "hawdb"; path: string; loadDemo: boolean };
-
-/** The connections Petal remembers, one per kind, never with a password. */
-export interface RememberedConnections {
-  last?: ConnectionForm["kind"];
-  neo4j?: Omit<Neo4jConnection, "password">;
-  memgraph?: Omit<MemgraphConnection, "password">;
-  nebula?: Omit<NebulaConnection, "password">;
-  gremlin?: Omit<GremlinConnection, "password">;
-  hawdb?: { path: string };
-}
+export type { ConnectionForm, SavedConnection } from "./connections";
 
 export interface Notice {
   id: number;
@@ -53,7 +38,9 @@ export interface Settings {
 
 const SETTINGS_KEY = "settings";
 const RECENT_KEY = "recent";
-const CONNECTION_KEY = "connection";
+/** Petal 0.2's one connection per driver, read once to carry it over. */
+const OLD_CONNECTION_KEY = "connection";
+const CONNECTIONS_KEY = "connections";
 /** The most nodes a scene holds (Bloom's default is 10 000): nsh-graph's Rust layout settles 5 000 in about 5 s. */
 export const SCENE_LIMIT = 5000;
 
@@ -78,7 +65,12 @@ export function createAppStore(options: AppStoreOptions = {}) {
   const notice = signal<Notice | null>(null);
   const recent = signal<string[]>([]);
   const settings = signal<Settings>(DEFAULT_SETTINGS);
-  const connections = signal<RememberedConnections>({});
+  /** The saved connections, most recently used first. */
+  const connections = signal<SavedConnection[]>([]);
+  /** The saved connection in use; null on the demo graph or a source given to the store. */
+  const activeConnection = signal<string | null>(null);
+  /** Passwords typed this session, by saved connection. Never stored. */
+  const passwords = new Map<string, string>();
   /** Shown while the connection dialog is open. */
   const connectOpen = signal(false);
   const panelOpen = signal(true);
@@ -96,13 +88,18 @@ export function createAppStore(options: AppStoreOptions = {}) {
 
   async function restore() {
     try {
-      const [s, r, c] = await Promise.all([Storage.getItem(SETTINGS_KEY), Storage.getItem(RECENT_KEY), Storage.getItem(CONNECTION_KEY)]);
+      const [s, r, c, old] = await Promise.all([
+        Storage.getItem(SETTINGS_KEY),
+        Storage.getItem(RECENT_KEY),
+        Storage.getItem(CONNECTIONS_KEY),
+        Storage.getItem(OLD_CONNECTION_KEY),
+      ]);
       if (s) settings.set({ ...DEFAULT_SETTINGS, ...JSON.parse(s) });
       if (r) recent.set(JSON.parse(r));
-      if (c) {
-        const kept = JSON.parse(c);
-        // Petal 0.1 kept one Neo4j connection here.
-        connections.set(kept && "url" in kept ? { last: "neo4j", neo4j: kept } : kept);
+      if (c) connections.set(JSON.parse(c));
+      else if (old) {
+        setConnections(migrateRemembered(JSON.parse(old)));
+        Storage.removeItem(OLD_CONNECTION_KEY).catch(() => {});
       }
     } catch {
       // damaged entries fall back to the defaults
@@ -147,35 +144,85 @@ export function createAppStore(options: AppStoreOptions = {}) {
     await use(source());
   }
 
-  /** Opens a database; resolves with an error message, or null once it is in use. */
-  async function connect(form: ConnectionForm): Promise<string | null> {
-    try {
-      let next: GraphSource;
-      let kept: RememberedConnections;
-      if (form.kind === "neo4j") {
-        next = await Neo4jSource.connect(form);
-        kept = { ...connections(), last: "neo4j", neo4j: { url: form.url.trim(), user: form.user, database: form.database.trim() || "neo4j" } };
-      } else if (form.kind === "memgraph") {
-        next = await MemgraphSource.connect(form);
-        kept = { ...connections(), last: "memgraph", memgraph: { url: form.url.trim(), user: form.user, database: form.database.trim() } };
-      } else if (form.kind === "gremlin") {
-        next = await GremlinSource.connect(form);
-        kept = { ...connections(), last: "gremlin", gremlin: { url: form.url.trim(), user: form.user, traversal: form.traversal.trim() || "g" } };
-      } else if (form.kind === "nebula") {
-        next = await NebulaSource.connect(form);
-        kept = {
-          ...connections(),
-          last: "nebula",
-          nebula: { gateway: form.gateway.trim(), graphd: form.graphd.trim(), user: form.user, space: form.space.trim() },
-        };
-      } else {
+  function setConnections(list: SavedConnection[]) {
+    const sorted = [...list].sort((x, y) => (y.lastUsed ?? 0) - (x.lastUsed ?? 0));
+    connections.set(sorted);
+    Storage.setItem(CONNECTIONS_KEY, JSON.stringify(sorted)).catch(() => {});
+  }
+
+  /** Adds or replaces a saved connection; resolves with it (a new one gets its ID here). */
+  function saveConnection(entry: Omit<SavedConnection, "id"> & { id?: string }, password?: string): SavedConnection {
+    const id = entry.id ?? newConnectionId();
+    const prev = connections().find((c) => c.id === id);
+    const saved: SavedConnection = { ...prev, ...entry, id, name: entry.name.trim(), settings: tidy(entry.settings) };
+    setConnections([...connections().filter((c) => c.id !== id), saved]);
+    if (password !== undefined && saved.settings.kind !== "hawdb") passwords.set(id, password);
+    return saved;
+  }
+
+  function deleteConnection(id: string) {
+    setConnections(connections().filter((c) => c.id !== id));
+    passwords.delete(id);
+    if (activeConnection() === id) activeConnection.set(null);
+  }
+
+  /** The password typed for a saved connection this session, if any. */
+  function passwordOf(id: string): string {
+    return passwords.get(id) ?? "";
+  }
+
+  async function openSource(form: ConnectionForm): Promise<GraphSource> {
+    switch (form.kind) {
+      case "neo4j":
+        return Neo4jSource.connect(form);
+      case "memgraph":
+        return MemgraphSource.connect(form);
+      case "gremlin":
+        return GremlinSource.connect(form);
+      case "nebula":
+        return NebulaSource.connect(form);
+      case "hawdb":
         // HawDB lets one handle own a folder: let go of the one in use before opening it again.
         if (source().kind === "hawdb") source().close?.();
-        next = await HawDbSource.open(form.path, { loadDemo: form.loadDemo });
-        kept = { ...connections(), last: "hawdb", hawdb: { path: form.path.trim() } };
+        return HawDbSource.open(form.path, { loadDemo: form.loadDemo });
+    }
+  }
+
+  /**
+   * Opens a database without switching to it, reads its schema and lets go: the dialog's Test button.
+   * Resolves with what it found, or the error.
+   */
+  async function testConnection(form: ConnectionForm): Promise<{ ok: boolean; message: string }> {
+    if (form.kind === "hawdb" && source().kind === "hawdb") {
+      return { ok: false, message: "A HawDB database is open now, and only one handle can hold a folder. Connect to test it." };
+    }
+    try {
+      const probe = await openSource(form);
+      try {
+        const s = await probe.schema();
+        const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+        return { ok: true, message: `Connected: ${n(s.labels.length, "label")}, ${n(s.relTypes.length, "relationship type")}.` };
+      } finally {
+        probe.close?.();
       }
-      connections.set(kept);
-      Storage.setItem(CONNECTION_KEY, JSON.stringify(kept)).catch(() => {});
+    } catch (e) {
+      return { ok: false, message: errorMessage(e) };
+    }
+  }
+
+  /**
+   * Opens a database and switches to it, saving the connection (under `id` when it is a saved one).
+   * Resolves with an error message, or null once it is in use.
+   */
+  async function connect(form: ConnectionForm, entry: { id?: string; name?: string } = {}): Promise<string | null> {
+    try {
+      const next = await openSource(form);
+      const { password: _p, loadDemo: _l, ...rest } = form as ConnectionForm & { password?: string; loadDemo?: boolean };
+      const saved = saveConnection(
+        { id: entry.id, name: entry.name ?? "", settings: rest as ConnectionSettings, lastUsed: Date.now() },
+        "password" in form ? form.password : undefined,
+      );
+      activeConnection.set(saved.id);
       await use(next);
       notify(`Connected to ${next.label}.`);
       return null;
@@ -185,6 +232,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
   }
 
   async function useDemo() {
+    activeConnection.set(null);
     await use(new DemoSource());
     notify("Switched to the demo graph.");
   }
@@ -323,6 +371,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
     recent,
     settings,
     connections,
+    activeConnection,
     connectOpen,
     panelOpen,
     selectedNode,
@@ -331,6 +380,10 @@ export function createAppStore(options: AppStoreOptions = {}) {
     start,
     use,
     connect,
+    testConnection,
+    saveConnection,
+    deleteConnection,
+    passwordOf,
     useDemo,
     updateSettings,
     notify,

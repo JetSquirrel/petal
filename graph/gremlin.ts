@@ -538,7 +538,7 @@ export class GremlinSource implements GraphSource {
     endpoint: string,
     traversal: string,
   ) {
-    this.label = `Gremlin · ${hostOf(endpoint)}`;
+    this.label = hostOf(endpoint);
     this.key = `gremlin:${endpoint}/${traversal}`;
   }
 

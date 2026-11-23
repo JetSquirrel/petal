@@ -150,7 +150,7 @@ export class HawDbSource implements GraphSource {
     readonly path: string,
   ) {
     this.db = db;
-    this.label = path ? `HawDB · ${folderName(path)}` : "HawDB · in memory";
+    this.label = path ? folderName(path) : "HawDB in memory";
     this.key = `hawdb:${path}`;
   }
 

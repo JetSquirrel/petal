@@ -57,7 +57,7 @@ export function Scene() {
 
       <View class="absolute left-4 top-3 pointer-events-none">
         <Text class="text-xs text-muted-foreground tabular-nums" testID="scene-stats">
-          {`${data().nodes.length} ${data().nodes.length === 1 ? "node" : "nodes"} · ${data().edges.length} ${
+          {`${data().nodes.length} ${data().nodes.length === 1 ? "node" : "nodes"}, ${data().edges.length} ${
             data().edges.length === 1 ? "relationship" : "relationships"
           }`}
         </Text>
