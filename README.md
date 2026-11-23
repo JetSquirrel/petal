@@ -55,8 +55,19 @@ HawDB, which takes a few minutes.
 
 ## Connecting
 
-Use the database button at the top right and pick the kind. Petal remembers the last connection of each kind, but
-never a password.
+The database button at the top right (Ctrl/⌘ + O) opens the connection manager. It works the way a database
+client does: saved connections are listed on the left, and you can keep as many as you like, of any database.
+
+- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, NebulaGraph, any Gremlin
+  server) and HawDB, which runs on this computer. Pick one to fill in its settings.
+- **Test** opens the database, reads its schema, reports what it found and closes it again, without leaving the
+  graph you're exploring.
+- **Save** keeps the connection, under a name if you give it one. **Connect** saves it too, and switches to it.
+- **Delete** removes a saved connection. **Demo graph** at the bottom goes back to the built-in graph.
+
+Passwords are never saved. Petal keeps one only while it runs, so reconnecting in the same session doesn't ask for
+it again. Connections from Petal 0.2, which kept one per database kind, become saved connections the first time
+the new version starts.
 
 ### Neo4j
 

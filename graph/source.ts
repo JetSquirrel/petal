@@ -64,7 +64,7 @@ export type QueryLanguage = "Cypher" | "nGQL" | "Gremlin" | null;
 
 export interface GraphSource {
   readonly kind: SourceKind;
-  /** Where it is, for the connection button: `neo4j · localhost:7474`. */
+  /** Where it is, for the connection button: `localhost:7474/neo4j`. */
   readonly label: string;
   /** A key for what Petal remembers per database (its perspective). */
   readonly key: string;

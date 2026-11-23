@@ -1,29 +1,139 @@
 /**
- * Connecting to a database: Neo4j over its HTTP API, Memgraph over Bolt, NebulaGraph through its HTTP gateway,
- * a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop), or a HawDB database embedded in Petal. Passwords are kept only while the app runs; the rest is remembered, per kind.
+ * The connection manager, the way a database client has one: saved connections on the left, and on the right
+ * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
+ * Drivers: Neo4j over its HTTP API, Memgraph over Bolt, NebulaGraph through its HTTP gateway, a Gremlin server
+ * (JanusGraph, HugeGraph, Neptune, TinkerPop), and HawDB embedded in Petal. Passwords are kept only while the
+ * app runs.
  */
-import { signal, Text, View } from "nsh";
+import { signal, Scroll, Text, View } from "nsh";
 import { Dialog } from "nsh/base";
-import { useStore, type ConnectionForm } from "../store/app";
-import { Button, Field, Icon, IconButton, Segmented, Switch, TextField } from "../ui";
+import { useStore } from "../store/app";
+import { addressOf, defaultSettings, toForm, type ConnectionSettings, type DriverKind, type SavedConnection } from "../store/connections";
+import { Button, Field, Icon, IconButton, Row, SectionTitle, Separator, Switch, TextField } from "../ui";
 
-type Kind = ConnectionForm["kind"];
+interface FieldSpec {
+  key: string;
+  label: string;
+  description?: string;
+  testID: string;
+  autoComplete?: "username" | "url";
+  mono?: boolean;
+}
 
-const KINDS: { value: Kind; label: string }[] = [
-  { value: "neo4j", label: "Neo4j" },
-  { value: "memgraph", label: "Memgraph" },
-  { value: "nebula", label: "NebulaGraph" },
-  { value: "gremlin", label: "Gremlin" },
-  { value: "hawdb", label: "HawDB" },
+interface Driver {
+  kind: DriverKind;
+  name: string;
+  /** Two letters for its mark. */
+  mark: string;
+  blurb: string;
+  group: "server" | "embedded";
+  /** Its fields, a row at a time. */
+  rows: FieldSpec[][];
+  password: boolean;
+}
+
+const DRIVERS: Driver[] = [
+  {
+    kind: "neo4j",
+    name: "Neo4j",
+    mark: "N4",
+    blurb: "Neo4j 5 or later, including Aura, over its HTTP API.",
+    group: "server",
+    password: true,
+    rows: [
+      [{ key: "url", label: "Address", description: "http://host:7474, https://…databases.neo4j.io, or a neo4j+s:// URI", testID: "connect-url", autoComplete: "url" }],
+      [
+        { key: "user", label: "User", testID: "connect-user", autoComplete: "username" },
+        { key: "database", label: "Database", testID: "connect-database" },
+      ],
+    ],
+  },
+  {
+    kind: "memgraph",
+    name: "Memgraph",
+    mark: "MG",
+    blurb: "Memgraph over Bolt, its binary protocol.",
+    group: "server",
+    password: true,
+    rows: [
+      [{ key: "url", label: "Address", description: "bolt://host:7687, or bolt+s:// for TLS (Memgraph Cloud)", testID: "connect-bolt-url", autoComplete: "url" }],
+      [
+        { key: "user", label: "User", description: "Empty when authentication is off", testID: "connect-bolt-user", autoComplete: "username" },
+        { key: "database", label: "Database", description: "Empty for the default", testID: "connect-bolt-database" },
+      ],
+    ],
+  },
+  {
+    kind: "nebula",
+    name: "NebulaGraph",
+    mark: "NG",
+    blurb: "NebulaGraph 3.5 or later, through nebula-http-gateway.",
+    group: "server",
+    password: true,
+    rows: [
+      [{ key: "gateway", label: "Gateway", description: "Where nebula-http-gateway listens: http://host:8080", testID: "connect-gateway", autoComplete: "url" }],
+      [
+        { key: "graphd", label: "graphd", description: "As the gateway reaches it", testID: "connect-graphd" },
+        { key: "space", label: "Space", testID: "connect-space" },
+      ],
+      [{ key: "user", label: "User", testID: "connect-nebula-user", autoComplete: "username" }],
+    ],
+  },
+  {
+    kind: "gremlin",
+    name: "Gremlin",
+    mark: "GR",
+    blurb: "Any Gremlin server: TinkerPop, JanusGraph, HugeGraph, Amazon Neptune.",
+    group: "server",
+    password: true,
+    rows: [
+      [
+        {
+          key: "url",
+          label: "Address",
+          description: "ws://host:8182/gremlin or wss://; https://…:8182/gremlin for HTTP (Neptune)",
+          testID: "connect-gremlin-url",
+          autoComplete: "url",
+        },
+      ],
+      [
+        { key: "user", label: "User", description: "Empty when authentication is off", testID: "connect-gremlin-user", autoComplete: "username" },
+        { key: "traversal", label: "Traversal source", description: "g, or the server's name for it", testID: "connect-traversal" },
+      ],
+    ],
+  },
+  {
+    kind: "hawdb",
+    name: "HawDB",
+    mark: "HW",
+    blurb: "An embedded database in a folder on this computer, opened by Petal itself.",
+    group: "embedded",
+    password: false,
+    rows: [
+      [
+        {
+          key: "path",
+          label: "Folder",
+          description: "Created when it is missing; empty for a database in memory. Only one app can have it open at a time.",
+          testID: "connect-path",
+          mono: true,
+        },
+      ],
+    ],
+  },
 ];
 
-const ABOUT: Record<Kind, string> = {
-  neo4j: "Neo4j 5 or later, including Aura, over its HTTP API.",
-  memgraph: "Memgraph over Bolt, its binary protocol.",
-  nebula: "NebulaGraph 3.5 or later, through its HTTP gateway (nebula-http-gateway).",
-  gremlin: "A Gremlin server: Apache TinkerPop, JanusGraph, HugeGraph or Amazon Neptune.",
-  hawdb: "An embedded HawDB database: a folder on this computer that Petal opens itself.",
-};
+const driverOf = (kind: DriverKind) => DRIVERS.find((d) => d.kind === kind)!;
+
+function defaultHawDbPath(): string {
+  const dir = typeof process !== "undefined" ? process.dataDir : null;
+  return dir ? `${dir.replace(/[\\/]+$/, "")}/petal.hawdb` : "";
+}
+
+/** What a saved connection is called: its name, or its address. */
+function titleOf(c: SavedConnection): string {
+  return c.name || addressOf(c.settings);
+}
 
 export function ConnectDialog() {
   const store = useStore();
@@ -31,222 +141,318 @@ export function ConnectDialog() {
     <Dialog
       open={store.connectOpen()}
       onOpenChange={(e) => store.connectOpen.set(e.open)}
-      accessibilityLabel="Connect to a database"
+      accessibilityLabel="Connections"
       animation="fade"
       backdropClass="bg-scrim"
-      class="m-auto gap-5 rounded-xl border border-border bg-popover p-5 shadow-xl"
-      style={{ width: 560, maxWidth: "94%" }}
+      class="m-auto flex-row overflow-hidden rounded-xl border border-border bg-popover shadow-xl"
+      style={{ width: 820, maxWidth: "94%", height: 560, maxHeight: "90%" }}
       testID="connect-dialog"
     >
-      <ConnectForm />
+      <ConnectionManager />
     </Dialog>
   );
 }
 
-function defaultHawDbPath(): string {
-  const dir = typeof process !== "undefined" ? process.dataDir : null;
-  return dir ? `${dir.replace(/[\\/]+$/, "")}/petal.hawdb` : "";
+type Pane = { mode: "pick" } | { mode: "edit"; id: string | null; kind: DriverKind; nonce: number };
+
+function ConnectionManager() {
+  const store = useStore();
+  let nonce = 0;
+  const editing = (c: SavedConnection): Pane => ({ mode: "edit", id: c.id, kind: c.settings.kind, nonce: ++nonce });
+  const first = store.connections().find((c) => c.id === store.activeConnection()) ?? store.connections()[0];
+  const pane = signal<Pane>(first ? editing(first) : { mode: "pick" });
+  const selectedId = () => {
+    const p = pane();
+    return p.mode === "edit" ? p.id : null;
+  };
+
+  return (
+    <>
+      <View class="w-64 border-r border-border bg-sidebar">
+        <View class="h-14 flex-row items-center justify-between px-3">
+          <Text class="text-sm font-semibold text-foreground">Connections</Text>
+          <IconButton
+            size="sm"
+            icon="plus"
+            label="New connection"
+            selected={pane().mode === "pick" || selectedId() === null}
+            onPress={() => pane.set({ mode: "pick" })}
+            testID="new-connection"
+          />
+        </View>
+        <Scroll class="flex-1">
+          <View class="gap-0.5 px-2 pb-2">
+            <If when={store.connections().length === 0}>
+              <Text class="px-2 py-1 text-xs text-muted-foreground">No saved connections yet. Pick a database on the right to add one.</Text>
+            </If>
+            <Each of={store.connections()} key={(c) => c.id}>
+              {(c) => (
+                <Row selected={selectedId() === c().id} onPress={() => pane.set(editing(c()))} testID={`saved-${c().id}`} accessibilityLabel={titleOf(c())}>
+                  <DriverMark kind={c().settings.kind} />
+                  <View class="flex-1 gap-0.5 py-1.5">
+                    <Text class="text-sm text-foreground line-clamp-1">{titleOf(c())}</Text>
+                    <Text class="text-xs text-muted-foreground line-clamp-1">
+                      {c().name ? `${driverOf(c().settings.kind).name}, ${addressOf(c().settings)}` : driverOf(c().settings.kind).name}
+                    </Text>
+                  </View>
+                  <If when={store.activeConnection() === c().id && store.connection() === "ready"}>
+                    <View class="h-2 w-2 rounded-full bg-success" accessibilityLabel="In use" />
+                  </If>
+                </Row>
+              )}
+            </Each>
+          </View>
+        </Scroll>
+        <Separator />
+        <View class="p-2">
+          <Row
+            selected={store.source().kind === "demo"}
+            onPress={() => {
+              store.connectOpen.set(false);
+              if (store.source().kind !== "demo") store.useDemo();
+            }}
+            testID="use-demo"
+            accessibilityLabel="Use the demo graph"
+          >
+            <View class="h-7 w-7 items-center justify-center rounded-md bg-accent">
+              <Icon name="sliders" size={14} tone="accent-foreground" />
+            </View>
+            <View class="flex-1 gap-0.5 py-1.5">
+              <Text class="text-sm text-foreground">Demo graph</Text>
+              <Text class="text-xs text-muted-foreground">Built in, no database needed</Text>
+            </View>
+          </Row>
+        </View>
+      </View>
+
+      <View class="flex-1">
+        <If
+          when={pane().mode === "edit"}
+          else={<DriverPicker onPick={(kind) => pane.set({ mode: "edit", id: null, kind, nonce: ++nonce })} />}
+        >
+          {/* Keyed on the pane, so each connection gets a fresh editor. */}
+          <Each of={[pane()]} key={(p) => (p.mode === "edit" ? `${p.id}:${p.nonce}` : "pick")}>
+            {(p) => {
+              const edit = p() as Extract<Pane, { mode: "edit" }>;
+              return (
+                <ConnectionEditor
+                  saved={store.connections().find((c) => c.id === edit.id)}
+                  kind={edit.kind}
+                  onSaved={(c) => pane.set(editing(c))}
+                  onDeleted={() => {
+                    const next = store.connections()[0];
+                    pane.set(next ? editing(next) : { mode: "pick" });
+                  }}
+                />
+              );
+            }}
+          </Each>
+        </If>
+      </View>
+    </>
+  );
 }
 
-function ConnectForm() {
+function DriverMark(props: { kind: DriverKind; large?: boolean }) {
+  return (
+    <View class={`${props.large ? "h-10 w-10 rounded-lg" : "h-7 w-7 rounded-md"} items-center justify-center border border-border bg-background`}>
+      <Text class={`${props.large ? "text-sm" : "text-xs"} font-semibold tracking-tight text-muted-foreground`}>{driverOf(props.kind).mark}</Text>
+    </View>
+  );
+}
+
+function PaneHeader(props: { title: string; detail: string; kind?: DriverKind }) {
   const store = useStore();
-  const kept = store.connections();
-  const current = store.source().kind;
-  const kind = signal<Kind>(current !== "demo" ? current : (kept.last ?? "neo4j"));
+  return (
+    <View class="flex-row items-start gap-3 px-5 pb-4 pt-4">
+      <If when={props.kind}>{(k) => <DriverMark kind={k()} large />}</If>
+      <View class="flex-1 gap-0.5">
+        <Text class="text-base font-semibold text-popover-foreground line-clamp-1">{props.title}</Text>
+        <Text class="text-sm text-muted-foreground">{props.detail}</Text>
+      </View>
+      <IconButton size="sm" icon="x" label="Close" onPress={() => store.connectOpen.set(false)} />
+    </View>
+  );
+}
 
-  const neo4j = {
-    url: signal(kept.neo4j?.url ?? "http://localhost:7474"),
-    user: signal(kept.neo4j?.user ?? "neo4j"),
-    database: signal(kept.neo4j?.database ?? "neo4j"),
-  };
-  const memgraph = {
-    url: signal(kept.memgraph?.url ?? "bolt://localhost:7687"),
-    user: signal(kept.memgraph?.user ?? ""),
-    database: signal(kept.memgraph?.database ?? ""),
-  };
-  const gremlin = {
-    url: signal(kept.gremlin?.url ?? "ws://localhost:8182/gremlin"),
-    user: signal(kept.gremlin?.user ?? ""),
-    traversal: signal(kept.gremlin?.traversal ?? "g"),
-  };
-  const nebula = {
-    gateway: signal(kept.nebula?.gateway ?? "http://localhost:8080"),
-    graphd: signal(kept.nebula?.graphd ?? "graphd:9669"),
-    user: signal(kept.nebula?.user ?? "root"),
-    space: signal(kept.nebula?.space ?? ""),
-  };
-  const hawdb = { path: signal(kept.hawdb?.path ?? defaultHawDbPath()), loadDemo: signal(false) };
-  const password = signal("");
-  const connecting = signal(false);
-  const error = signal<string | null>(null);
+function DriverPicker(props: { onPick: (kind: DriverKind) => void }) {
+  const groups = [
+    { title: "Servers", drivers: DRIVERS.filter((d) => d.group === "server") },
+    { title: "On this computer", drivers: DRIVERS.filter((d) => d.group === "embedded") },
+  ];
+  return (
+    <>
+      <PaneHeader title="New connection" detail="Choose the database to connect to." />
+      <Scroll class="flex-1">
+        <View class="gap-5 px-5 pb-5">
+          <Each of={groups}>
+            {(g) => (
+              <View class="gap-2">
+                <SectionTitle title={g().title} />
+                <View class="flex-row flex-wrap gap-2">
+                  <Each of={g().drivers} key={(d) => d.kind}>
+                    {(d) => (
+                      <Row class="items-start border border-border p-3" onPress={() => props.onPick(d().kind)} testID={`driver-${d().kind}`} accessibilityLabel={d().name}>
+                        <View class="flex-row items-start gap-3" style={{ width: 222 }}>
+                          <DriverMark kind={d().kind} large />
+                          <View class="flex-1 gap-0.5">
+                            <Text class="text-sm font-medium text-foreground">{d().name}</Text>
+                            <Text class="text-xs text-muted-foreground">{d().blurb}</Text>
+                          </View>
+                        </View>
+                      </Row>
+                    )}
+                  </Each>
+                </View>
+              </View>
+            )}
+          </Each>
+        </View>
+      </Scroll>
+    </>
+  );
+}
 
-  const form = (): ConnectionForm => {
-    switch (kind()) {
-      case "neo4j":
-        return { kind: "neo4j", url: neo4j.url(), user: neo4j.user(), password: password(), database: neo4j.database() };
-      case "memgraph":
-        return { kind: "memgraph", url: memgraph.url(), user: memgraph.user(), password: password(), database: memgraph.database() };
-      case "gremlin":
-        return { kind: "gremlin", url: gremlin.url(), user: gremlin.user(), password: password(), traversal: gremlin.traversal() };
-      case "nebula":
-        return { kind: "nebula", gateway: nebula.gateway(), graphd: nebula.graphd(), user: nebula.user(), password: password(), space: nebula.space() };
-      case "hawdb":
-        return { kind: "hawdb", path: hawdb.path(), loadDemo: hawdb.loadDemo() };
-    }
-  };
+function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; onSaved: (c: SavedConnection) => void; onDeleted: () => void }) {
+  const store = useStore();
+  const driver = driverOf(props.kind);
+  /** The connection as it was when the editor opened: Delete takes it out of the list before the pane moves on. */
+  const savedAtOpen = props.saved;
+  const isNew = !savedAtOpen;
+  const draft = signal<ConnectionSettings>(savedAtOpen?.settings ?? defaultSettings(props.kind, defaultHawDbPath()));
+  const name = signal(savedAtOpen?.name ?? "");
+  const password = signal(savedAtOpen ? store.passwordOf(savedAtOpen.id) : "");
+  const loadDemo = signal(false);
+  const working = signal<"test" | "connect" | null>(null);
+  const status = signal<{ ok: boolean; message: string } | null>(null);
 
+  const value = (key: string) => (draft() as unknown as Record<string, string>)[key] ?? "";
+  const setValue = (key: string, v: string) => {
+    draft.set({ ...draft(), [key]: v } as ConnectionSettings);
+    status.set(null);
+  };
+  const form = () => toForm(draft(), password(), loadDemo());
+  const inUse = () => !!savedAtOpen && store.activeConnection() === savedAtOpen.id && store.connection() === "ready";
+
+  const test = async () => {
+    if (working()) return;
+    working.set("test");
+    status.set(null);
+    status.set(await store.testConnection(form()));
+    working.set(null);
+  };
+  const save = () => {
+    const saved = store.saveConnection({ id: savedAtOpen?.id, name: name(), settings: draft() }, driver.password ? password() : undefined);
+    store.notify(`Saved ${titleOf(saved)}.`);
+    props.onSaved(saved);
+  };
   const connect = async () => {
-    if (connecting()) return;
-    connecting.set(true);
-    error.set(null);
-    const message = await store.connect(form());
-    connecting.set(false);
-    if (message) error.set(message);
+    if (working()) return;
+    working.set("connect");
+    status.set(null);
+    const message = await store.connect(form(), { id: savedAtOpen?.id, name: name() });
+    working.set(null);
+    if (message) status.set({ ok: false, message });
     else store.connectOpen.set(false);
   };
 
   return (
     <>
-      <View class="flex-row items-start gap-3">
-        <View class="h-9 w-9 items-center justify-center rounded-lg bg-accent">
-          <Icon name="database" size={18} tone="accent-foreground" />
-        </View>
-        <View class="flex-1 gap-0.5">
-          <Text class="text-base font-semibold text-popover-foreground">Connect to a database</Text>
-          <Text class="text-sm text-muted-foreground">{ABOUT[kind()]}</Text>
-        </View>
-        <IconButton size="sm" icon="x" label="Close" onPress={() => store.connectOpen.set(false)} />
-      </View>
-
-      <Segmented
-        label="Database"
-        value={kind()}
-        options={KINDS}
-        onChange={(k) => {
-          kind.set(k);
-          error.set(null);
-          password.set("");
-        }}
-        testID="connect-kind"
+      <PaneHeader
+        kind={props.kind}
+        title={isNew ? `New ${driver.name} connection` : titleOf(savedAtOpen!)}
+        detail={inUse() ? `In use now. ${driver.blurb}` : driver.blurb}
       />
-
-      <View class="gap-3">
-        <If when={kind() === "neo4j"}>
-          <Field label="Address" description="http://host:7474, https://…databases.neo4j.io, or a neo4j+s:// URI">
-            <TextField value={neo4j.url()} onChange={neo4j.url.set} onSubmit={connect} verbatim autoComplete="url" testID="connect-url" accessibilityLabel="Address" />
-          </Field>
-          <View class="flex-row gap-3">
-            <Field label="User" class="flex-1">
-              <TextField value={neo4j.user()} onChange={neo4j.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-user" accessibilityLabel="User" />
-            </Field>
-            <Field label="Database" class="flex-1">
-              <TextField value={neo4j.database()} onChange={neo4j.database.set} onSubmit={connect} verbatim testID="connect-database" accessibilityLabel="Database" />
-            </Field>
-          </View>
-        </If>
-
-        <If when={kind() === "memgraph"}>
-          <Field label="Address" description="bolt://host:7687, or bolt+s:// for TLS (Memgraph Cloud)">
-            <TextField value={memgraph.url()} onChange={memgraph.url.set} onSubmit={connect} verbatim autoComplete="url" testID="connect-bolt-url" accessibilityLabel="Address" />
-          </Field>
-          <View class="flex-row gap-3">
-            <Field label="User" description="Empty when authentication is off" class="flex-1">
-              <TextField value={memgraph.user()} onChange={memgraph.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-bolt-user" accessibilityLabel="User" />
-            </Field>
-            <Field label="Database" description="Empty for the default" class="flex-1">
-              <TextField value={memgraph.database()} onChange={memgraph.database.set} onSubmit={connect} verbatim testID="connect-bolt-database" accessibilityLabel="Database" />
-            </Field>
-          </View>
-        </If>
-
-        <If when={kind() === "gremlin"}>
-          <Field label="Address" description="ws://host:8182/gremlin or wss:// for any Gremlin Server; https://…:8182/gremlin for HTTP (Neptune)">
-            <TextField value={gremlin.url()} onChange={gremlin.url.set} onSubmit={connect} verbatim autoComplete="url" testID="connect-gremlin-url" accessibilityLabel="Address" />
-          </Field>
-          <View class="flex-row gap-3">
-            <Field label="User" description="Empty when authentication is off" class="flex-1">
-              <TextField value={gremlin.user()} onChange={gremlin.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-gremlin-user" accessibilityLabel="User" />
-            </Field>
-            <Field label="Traversal source" description="g, or the server's name for it (HugeGraph: __g_hugegraph)" class="flex-1">
-              <TextField value={gremlin.traversal()} onChange={gremlin.traversal.set} onSubmit={connect} verbatim testID="connect-traversal" accessibilityLabel="Traversal source" />
-            </Field>
-          </View>
-        </If>
-
-        <If when={kind() === "nebula"}>
-          <Field label="Gateway" description="Where nebula-http-gateway listens: http://host:8080">
+      <Scroll class="flex-1">
+        <View class="gap-3 px-5 pb-4">
+          <Field label="Name" description="How it shows in the list. Empty to use its address.">
             <TextField
-              value={nebula.gateway()}
-              onChange={nebula.gateway.set}
+              value={name()}
+              onChange={name.set}
               onSubmit={connect}
-              verbatim
-              autoComplete="url"
-              testID="connect-gateway"
-              accessibilityLabel="Gateway"
+              placeholder={addressOf(draft())}
+              testID="connect-name"
+              accessibilityLabel="Name"
             />
           </Field>
-          <View class="flex-row gap-3">
-            <Field label="graphd" description="As the gateway reaches it" class="flex-1">
-              <TextField value={nebula.graphd()} onChange={nebula.graphd.set} onSubmit={connect} verbatim testID="connect-graphd" accessibilityLabel="graphd address" />
+          <Separator class="my-1" />
+          <Each of={driver.rows}>
+            {(row) => (
+              <View class="flex-row gap-3">
+                <Each of={row()} key={(f) => f.key}>
+                  {(f) => (
+                    <Field label={f().label} description={f().description} class="flex-1">
+                      <TextField
+                        value={value(f().key)}
+                        onChange={(v) => setValue(f().key, v)}
+                        onSubmit={connect}
+                        verbatim
+                        mono={f().mono}
+                        autoComplete={f().autoComplete}
+                        testID={f().testID}
+                        accessibilityLabel={f().label}
+                      />
+                    </Field>
+                  )}
+                </Each>
+              </View>
+            )}
+          </Each>
+          <If when={driver.password}>
+            <Field label="Password" description="Kept only while Petal runs, never saved.">
+              <TextField
+                value={password()}
+                onChange={(v) => {
+                  password.set(v);
+                  status.set(null);
+                }}
+                onSubmit={connect}
+                masked
+                autoComplete="current-password"
+                testID="connect-password"
+                accessibilityLabel="Password"
+              />
             </Field>
-            <Field label="Space" class="flex-1">
-              <TextField value={nebula.space()} onChange={nebula.space.set} onSubmit={connect} verbatim testID="connect-space" accessibilityLabel="Space" />
-            </Field>
-          </View>
-          <Field label="User">
-            <TextField value={nebula.user()} onChange={nebula.user.set} onSubmit={connect} verbatim autoComplete="username" testID="connect-nebula-user" accessibilityLabel="User" />
-          </Field>
-        </If>
-
-        <If when={kind() !== "hawdb"}>
-          <Field label="Password">
-            <TextField
-              value={password()}
-              onChange={password.set}
-              onSubmit={connect}
-              masked
-              autoComplete="current-password"
-              testID="connect-password"
-              accessibilityLabel="Password"
+          </If>
+          <If when={props.kind === "hawdb"}>
+            <Switch label="Load the demo graph into a new, empty database" checked={loadDemo()} onChange={loadDemo.set} testID="connect-load-demo" />
+          </If>
+          <If when={status()}>
+            {(s) => (
+              <View
+                class={`flex-row items-start gap-2 rounded-md p-2.5 ${s().ok ? "bg-success/10" : "bg-destructive/10"}`}
+                testID={s().ok ? "connect-ok" : "connect-error"}
+              >
+                <Icon name={s().ok ? "check" : "alert"} size={14} tone={s().ok ? "success" : "destructive"} />
+                <Text class={`flex-1 text-xs ${s().ok ? "text-success" : "text-destructive"}`}>{s().message}</Text>
+              </View>
+            )}
+          </If>
+        </View>
+      </Scroll>
+      <View class="flex-row items-center justify-between gap-2 border-t border-border px-5 py-3">
+        <If when={savedAtOpen} else={<View />}>
+          {(saved) => (
+            <Button
+              variant="ghost"
+              icon="trash"
+              label="Delete"
+              onPress={() => {
+                store.deleteConnection(saved().id);
+                store.notify(`Deleted ${titleOf(saved())}.`);
+                props.onDeleted();
+              }}
+              testID="connect-delete"
             />
-          </Field>
-        </If>
-
-        <If when={kind() === "hawdb"}>
-          <Field label="Folder" description="HawDB keeps a database in a folder and creates it when it is missing. Only one app can have it open at a time.">
-            <TextField value={hawdb.path()} onChange={hawdb.path.set} onSubmit={connect} verbatim mono testID="connect-path" accessibilityLabel="Folder" />
-          </Field>
-          <Switch label="Load the demo graph into a new, empty database" checked={hawdb.loadDemo()} onChange={hawdb.loadDemo.set} testID="connect-load-demo" />
-        </If>
-
-        <If when={error()}>
-          {(e) => (
-            <View class="flex-row items-start gap-2 rounded-md bg-destructive/10 p-2.5" testID="connect-error">
-              <Icon name="alert" size={14} tone="destructive" />
-              <Text class="flex-1 text-xs text-destructive">{e()}</Text>
-            </View>
           )}
         </If>
-      </View>
-
-      <View class="flex-row items-center justify-between gap-2">
-        <If when={store.source().kind !== "demo"} else={<View />}>
-          <Button
-            variant="ghost"
-            label="Use the demo graph"
-            onPress={() => {
-              store.connectOpen.set(false);
-              store.useDemo();
-            }}
-            testID="use-demo"
-          />
-        </If>
         <View class="flex-row gap-2">
-          <Button variant="outline" label="Cancel" onPress={() => store.connectOpen.set(false)} />
+          <Button variant="outline" label={working() === "test" ? "Testing…" : "Test"} disabled={!!working()} onPress={test} testID="connect-test" />
+          <Button variant="outline" label="Save" disabled={!!working()} onPress={save} testID="connect-save" />
           <Button
             variant="primary"
-            label={connecting() ? "Connecting…" : kind() === "hawdb" ? "Open" : "Connect"}
-            disabled={connecting()}
+            label={working() === "connect" ? "Connecting…" : props.kind === "hawdb" ? "Open" : "Connect"}
+            disabled={!!working()}
             onPress={connect}
             testID="connect-submit"
           />

@@ -53,7 +53,7 @@ export class MemgraphSource implements GraphSource {
   private constructor(client: BoltClient, uri: string, database: string) {
     this.client = client;
     const host = uri.replace(/^[a-z+]+:\/\//, "");
-    this.label = database ? `${database} · ${host}` : `Memgraph · ${host}`;
+    this.label = database ? `${host}/${database}` : host;
     this.key = `memgraph:${uri}/${database}`;
   }
 

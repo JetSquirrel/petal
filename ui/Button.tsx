@@ -80,6 +80,8 @@ export interface IconButtonProps {
   selected?: boolean;
   /** Its keyboard shortcut, shown in the tooltip: "⌘Z". */
   shortcut?: string;
+  /** The icon's color, when it should be quieter than the variant's ink. */
+  tone?: IconTone;
   class?: string;
   testID?: string;
 }
@@ -97,7 +99,7 @@ export function IconButton(props: IconButtonProps) {
       tooltip={<Tooltip text={props.shortcut ? `${props.label}  ${props.shortcut}` : props.label} />}
       class={`${BASE} ${SIZE[s()].square} ${SURFACE[v()]} ${props.class ?? ""}`}
     >
-      <Icon name={props.icon} size={SIZE[s()].icon} tone={INK[v()].icon} />
+      <Icon name={props.icon} size={SIZE[s()].icon} tone={props.tone ?? INK[v()].icon} />
     </BaseButton>
   );
 }

@@ -36,54 +36,83 @@ export function PerspectivePanel() {
     <View class="w-64 border-r border-sidebar-border bg-sidebar" testID="perspective">
       <Scroll class="flex-1">
         <View class="gap-4 p-3">
-        <View class="gap-1">
-          <SectionTitle title="Categories" detail={categories().length ? String(categories().length) : undefined} />
-          <If when={categories().length === 0}>
-            <Text class="px-2 text-xs text-muted-foreground">{store.connection() === "connecting" ? "Reading the schema…" : "No labels in this database."}</Text>
-          </If>
-          <Each of={categories()} key={(c) => c.name}>
-            {(c) => <CategoryRow name={c().name} total={c().count} inScene={counts().categories.get(c().name) ?? 0} />}
-          </Each>
-        </View>
+          <View class="gap-1">
+            <SectionTitle title="Categories" detail={categories().length ? String(categories().length) : undefined} />
+            <If when={categories().length === 0}>
+              <Text class="px-2 text-xs text-muted-foreground">{store.connection() === "connecting" ? "Reading the schema…" : "No labels in this database."}</Text>
+            </If>
+            <Each of={categories()} key={(c) => c.name}>
+              {(c) => <CategoryRow name={c().name} total={c().count} inScene={counts().categories.get(c().name) ?? 0} />}
+            </Each>
+          </View>
 
-        <View class="gap-1">
-          <SectionTitle title="Relationships" detail={types().length ? String(types().length) : undefined} />
-          <Each of={types()} key={(t) => t.name}>
-            {(t) => {
-              const hidden = () => store.perspective.state().hiddenTypes.includes(t().name);
-              const inScene = () => counts().types.get(t().name) ?? 0;
-              return (
-                <View class="min-h-8 flex-row items-center gap-2 pl-2">
-                  <Text
-                    class={`flex-1 font-mono text-xs ${hidden() ? "text-muted-foreground line-through" : "text-sidebar-foreground"} line-clamp-1`}
-                  >
-                    {t().name}
-                  </Text>
-                  <Text class="text-xs text-muted-foreground tabular-nums">{inScene() ? `${inScene()} / ${fmt(t().count)}` : fmt(t().count)}</Text>
-                  <IconButton
-                    size="sm"
-                    icon={hidden() ? "eyeOff" : "eye"}
-                    label={hidden() ? `Show ${t().name}` : `Hide ${t().name}`}
-                    onPress={() => store.perspective.toggleType(t().name)}
-                    testID={`type-eye-${t().name}`}
-                  />
-                </View>
-              );
-            }}
-          </Each>
-        </View>
+          <View class="gap-1">
+            <SectionTitle title="Relationships" detail={types().length ? String(types().length) : undefined} />
+            <Each of={types()} key={(t) => t.name}>
+              {(t) => <TypeRow name={t().name} total={t().count} inScene={counts().types.get(t().name) ?? 0} />}
+            </Each>
+          </View>
 
-        <Separator />
-        <Button
-          size="sm"
-          variant="ghost"
-          icon="relayout"
-          label="Reset styles"
-          onPress={() => store.perspective.resetStyles()}
-          class="self-start"
-        />
+          <Separator />
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="relayout"
+            label="Reset styles"
+            onPress={() => store.perspective.resetStyles()}
+            class="self-start"
+          />
         </View>
       </Scroll>
+    </View>
+  );
+}
+
+/** A row's count: how many are in the scene out of how many the database holds. */
+function Count(props: { inScene: number; total?: number }) {
+  return (
+    <Text class="text-xs text-muted-foreground tabular-nums">
+      {props.inScene ? `${props.inScene} / ${fmt(props.total)}` : fmt(props.total)}
+    </Text>
+  );
+}
+
+/** The eye at a row's end: quiet when the entry is shown, so the hidden ones stand out. */
+function EyeButton(props: { name: string; hidden: boolean; onPress: () => void; testID: string }) {
+  return (
+    <IconButton
+      size="sm"
+      icon={props.hidden ? "eyeOff" : "eye"}
+      tone={props.hidden ? "foreground" : "muted-foreground"}
+      label={props.hidden ? `Show ${props.name}` : `Hide ${props.name}`}
+      onPress={props.onPress}
+      testID={props.testID}
+    />
+  );
+}
+
+/** A relationship type, laid out like a category row so names, counts and buttons line up. */
+function TypeRow(props: { name: string; total?: number; inScene: number }) {
+  const store = useStore();
+  const hidden = () => store.perspective.state().hiddenTypes.includes(props.name);
+  return (
+    <View class="flex-row items-center gap-0.5">
+      <View class="min-h-8 flex-1 flex-row items-center gap-2 px-2">
+        <Icon name="arrowOut" size={12} tone="muted-foreground" />
+        <Text class={`flex-1 font-mono text-xs ${hidden() ? "text-muted-foreground line-through" : "text-sidebar-foreground"} line-clamp-1`}>
+          {props.name}
+        </Text>
+        <Count inScene={props.inScene} total={props.total} />
+      </View>
+      <IconButton
+        size="sm"
+        icon="plus"
+        tone="muted-foreground"
+        label={`Add ${props.name} relationships`}
+        onPress={() => store.search({ kind: "pattern", nodes: [{}, {}], rels: [{ type: props.name }] }, props.name)}
+        testID={`type-add-${props.name}`}
+      />
+      <EyeButton name={props.name} hidden={hidden()} onPress={() => store.perspective.toggleType(props.name)} testID={`type-eye-${props.name}`} />
     </View>
   );
 }
@@ -102,9 +131,7 @@ function CategoryRow(props: { name: string; total?: number; inScene: number }) {
             <Text class={`flex-1 text-sm ${style().hidden ? "text-muted-foreground line-through" : "text-sidebar-foreground"} line-clamp-1`}>
               {props.name}
             </Text>
-            <Text class="text-xs text-muted-foreground tabular-nums">
-              {props.inScene ? `${props.inScene} / ${fmt(props.total)}` : fmt(props.total)}
-            </Text>
+            <Count inScene={props.inScene} total={props.total} />
           </Row>
         }
       >
@@ -113,14 +140,14 @@ function CategoryRow(props: { name: string; total?: number; inScene: number }) {
       <IconButton
         size="sm"
         icon="plus"
+        tone="muted-foreground"
         label={`Add ${props.name} nodes`}
         onPress={() => store.search({ kind: "pattern", nodes: [{ label: props.name }], rels: [] }, props.name)}
         testID={`category-add-${props.name}`}
       />
-      <IconButton
-        size="sm"
-        icon={style().hidden ? "eyeOff" : "eye"}
-        label={style().hidden ? `Show ${props.name}` : `Hide ${props.name}`}
+      <EyeButton
+        name={props.name}
+        hidden={!!style().hidden}
         onPress={() => store.perspective.setStyle(props.name, { hidden: !style().hidden })}
         testID={`category-eye-${props.name}`}
       />

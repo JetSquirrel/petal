@@ -4,7 +4,7 @@ import { expect, open, test } from "nsh/test";
 export function appTests(platform: "windows" | "macos") {
   const DESKTOP = { width: 1320, height: 840, platform };
 
-  const stats = (texts: string[]) => texts.find((t) => /\d+ nodes? · \d+ relationships?/.test(t)) ?? "";
+  const stats = (texts: string[]) => texts.find((t) => /\d+ nodes?, \d+ relationships?/.test(t)) ?? "";
 
   test("starts on the demo graph with its categories and starting points", async () => {
     const app = await open("./App.tsx", DESKTOP);
@@ -14,7 +14,7 @@ export function appTests(platform: "windows" | "macos") {
     for (const label of ["Person", "Project", "Company", "Language", "City"]) expect(texts).toContain(label);
     expect(texts).toContain("WORKS_AT");
     expect(app.shows("id:example-Person")).toBe(true);
-    expect(stats(texts)).toBe("0 nodes · 0 relationships");
+    expect(stats(texts)).toBe("0 nodes, 0 relationships");
   });
 
   test("a starting point fills the scene, and undo takes it back", async () => {
@@ -22,12 +22,12 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("id:example-Person");
     await app.press("id:example-Person");
     await app.waitUntil(() => stats(app.texts()).startsWith("30 nodes"), { timeout: 8000 });
-    expect(stats(app.texts())).toMatch(/^30 nodes · \d+ relationships$/);
+    expect(stats(app.texts())).toMatch(/^30 nodes, \d+ relationships$/);
     expect(app.shows("id:empty")).toBe(false);
 
     await app.press("id:undo");
     await app.waitFor("id:empty");
-    expect(stats(app.texts())).toBe("0 nodes · 0 relationships");
+    expect(stats(app.texts())).toBe("0 nodes, 0 relationships");
   });
 
   test("typing a phrase suggests patterns and runs the one chosen", async () => {
@@ -43,7 +43,7 @@ export function appTests(platform: "windows" | "macos") {
     await app.type("id:search", "Company WORKS_AT Person Inês");
     await app.submit("id:search");
     await app.waitFor("text:Added 1 node and 1 relationship.");
-    expect(stats(app.texts())).toBe("10 nodes · 3 relationships");
+    expect(stats(app.texts())).toBe("10 nodes, 3 relationships");
   });
 
   test("hiding a category takes its nodes off the canvas but keeps them in the scene", async () => {
@@ -54,7 +54,7 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitUntil(() => stats(app.texts()).startsWith("38 nodes"), { timeout: 8000 });
     const before = stats(app.texts());
     await app.press("id:category-eye-City");
-    expect(stats(app.texts())).toMatch(/^30 nodes · /);
+    expect(stats(app.texts())).toMatch(/^30 nodes, /);
     await app.press("id:category-eye-City");
     expect(stats(app.texts())).toBe(before);
   });
@@ -73,10 +73,10 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("id:expand-WRITTEN_IN-out");
     await app.press("id:expand-WRITTEN_IN-out");
     await app.waitFor("text:Added 1 node and 1 relationship.");
-    expect(stats(app.texts())).toBe("2 nodes · 1 relationship");
+    expect(stats(app.texts())).toBe("2 nodes, 1 relationship");
     await app.press("id:dismiss");
     await app.waitFor("text:Dismissed 1 node.");
-    expect(stats(app.texts())).toBe("1 node · 0 relationships");
+    expect(stats(app.texts())).toBe("1 node, 0 relationships");
   });
 
   test("queries need a database", async () => {
@@ -134,6 +134,7 @@ export function appTests(platform: "windows" | "macos") {
   async function connect(app: Awaited<ReturnType<typeof open>>, password: string) {
     await app.press("id:connection");
     await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-neo4j");
     await app.clear("id:connect-url");
     await app.type("id:connect-url", "localhost:7474");
     await app.clear("id:connect-database");
@@ -147,7 +148,7 @@ export function appTests(platform: "windows" | "macos") {
     const app = await open("./App.tsx", { ...DESKTOP, network: neo4j(seen) });
     await app.waitFor("id:example-Person");
     await connect(app, "secret");
-    await app.waitFor("text:Connected to movies · localhost:7474.");
+    await app.waitFor("text:Connected to localhost:7474/movies.");
     expect(app.shows("id:connect-dialog")).toBe(false);
     expect(app.texts()).toContain("Movie");
     expect(app.texts()).toContain("ACTED_IN");
@@ -157,7 +158,9 @@ export function appTests(platform: "windows" | "macos") {
     await app.submit("id:search");
     await app.waitFor("text:Added 2 nodes and 1 relationship.");
     expect(seen).toContain("MATCH p = (n0:`Person`)-[r0:`ACTED_IN`]->(n1:`Movie`) RETURN p LIMIT 100");
-    expect(JSON.parse(app.storage().connection).neo4j).toEqual({ url: "localhost:7474", user: "neo4j", database: "movies" });
+    const [saved] = JSON.parse(app.storage().connections);
+    expect(saved.settings).toEqual({ kind: "neo4j", url: "localhost:7474", user: "neo4j", database: "movies" });
+    expect(JSON.stringify(saved)).not.toContain("secret");
   });
 
   test("a wrong password is reported in the dialog", async () => {
@@ -167,6 +170,51 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("id:connect-error");
     expect(app.texts()).toContain("The user name or password is wrong.");
     expect(app.shows("id:connect-dialog")).toBe(true);
+  });
+
+  test("a saved connection reconnects with this session's password, tests, and can be deleted", async () => {
+    const app = await open("./App.tsx", { ...DESKTOP, network: neo4j([]) });
+    await app.waitFor("id:example-Person");
+    await connect(app, "secret");
+    await app.waitFor("text:Connected to localhost:7474/movies.");
+    const [saved] = JSON.parse(app.storage().connections);
+
+    await app.press("id:connection");
+    await app.waitFor(`id:saved-${saved.id}`);
+    await app.press("id:connect-test");
+    await app.waitFor("id:connect-ok");
+    expect(app.texts().some((t) => t.startsWith("Connected: 2 labels"))).toBe(true);
+
+    await app.type("id:connect-name", "Movies");
+    await app.press("id:connect-save");
+    await app.waitUntil(() => JSON.parse(app.storage().connections)[0].name === "Movies");
+    expect(JSON.parse(app.storage().connections)).toHaveLength(1);
+
+    await app.press("id:use-demo");
+    await app.waitFor("text:Switched to the demo graph.");
+    await app.press("id:connection");
+    await app.waitFor(`id:saved-${saved.id}`);
+    await app.press("id:connect-submit");
+    await app.waitFor("text:Connected to localhost:7474/movies.");
+    expect(app.texts()).toContain("Movies");
+
+    await app.press("id:connection");
+    await app.waitFor("id:connect-delete");
+    await app.press("id:connect-delete");
+    await app.waitFor("id:driver-neo4j");
+    expect(JSON.parse(app.storage().connections)).toEqual([]);
+  });
+
+  test("Petal 0.2's one connection per driver becomes saved connections", async () => {
+    const old = { last: "nebula", neo4j: { url: "http://db:7474", user: "neo4j", database: "movies" }, nebula: { gateway: "http://gw:8080", graphd: "graphd:9669", user: "root", space: "nba" } };
+    const app = await open("./App.tsx", { ...DESKTOP, storage: { connection: JSON.stringify(old) } });
+    await app.waitFor("id:example-Person");
+    await app.waitUntil(() => !!app.storage().connections);
+    const saved = JSON.parse(app.storage().connections);
+    expect(saved.map((c: { settings: { kind: string } }) => c.settings.kind)).toEqual(["nebula", "neo4j"]);
+    expect(app.storage().connection).toBeUndefined();
+    await app.press("id:connection");
+    await app.waitFor("text:graphd:9669/nba");
   });
 
   test("in a narrow window the inspector floats over the scene at full height", async () => {
@@ -222,13 +270,13 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("id:example-Person");
     await app.press("id:connection");
     await app.waitFor("id:connect-dialog");
-    await app.press("id:connect-kind-nebula");
+    await app.press("id:driver-nebula");
     await app.clear("id:connect-graphd");
     await app.type("id:connect-graphd", "graphd:9669");
     await app.type("id:connect-space", "basketball");
     await app.type("id:connect-password", "nebula");
     await app.press("id:connect-submit");
-    await app.waitFor("text:Connected to basketball · graphd:9669.");
+    await app.waitFor("text:Connected to graphd:9669/basketball.");
     expect(app.texts()).toContain("player");
     expect(app.texts()).toContain("51");
 
@@ -236,14 +284,20 @@ export function appTests(platform: "windows" | "macos") {
     await app.submit("id:search");
     await app.waitFor("text:Added 2 nodes and 1 relationship.");
     expect(seen).toContain("USE `basketball`; MATCH (n0:`player`)-[r0:`serve`]->(n1:`team`) RETURN n0, r0, n1 LIMIT 100");
-    expect(JSON.parse(app.storage().connection).nebula).toEqual({ gateway: "http://localhost:8080", graphd: "graphd:9669", user: "root", space: "basketball" });
+    expect(JSON.parse(app.storage().connections)[0].settings).toEqual({
+      kind: "nebula",
+      gateway: "http://localhost:8080",
+      graphd: "graphd:9669",
+      user: "root",
+      space: "basketball",
+    });
   });
 
   test("NebulaGraph's sign-in errors show in the dialog", async () => {
     const app = await open("./App.tsx", { ...DESKTOP, network: gateway([]) });
     await app.waitFor("id:example-Person");
     await app.press("id:connection");
-    await app.press("id:connect-kind-nebula");
+    await app.press("id:driver-nebula");
     await app.type("id:connect-space", "basketball");
     await app.type("id:connect-password", "wrong");
     await app.press("id:connect-submit");
@@ -256,11 +310,11 @@ export function appTests(platform: "windows" | "macos") {
   async function openHawDb(app: Awaited<ReturnType<typeof open>>) {
     await app.press("id:connection");
     await app.waitFor("id:connect-dialog");
-    await app.press("id:connect-kind-hawdb");
+    await app.press("id:driver-hawdb");
     await app.clear("id:connect-path"); // an empty folder: in memory
     await app.press("id:connect-load-demo");
     await app.press("id:connect-submit");
-    await app.waitFor("text:Connected to HawDB · in memory.", { timeout: 15000 });
+    await app.waitFor("text:Connected to HawDB in memory.", { timeout: 15000 });
   }
 
   test("opens an embedded HawDB database, loads the demo graph and explores it", async () => {
@@ -274,7 +328,7 @@ export function appTests(platform: "windows" | "macos") {
     await app.type("id:search", "Company WORKS_AT Person Inês");
     await app.submit("id:search");
     await app.waitFor("text:Added 2 nodes and 1 relationship.");
-    expect(stats(app.texts())).toBe("2 nodes · 1 relationship");
+    expect(stats(app.texts())).toBe("2 nodes, 1 relationship");
 
     await app.clear("id:search");
     await app.type("id:search", "sparrow");
@@ -335,7 +389,7 @@ export function appTests(platform: "windows" | "macos") {
   async function connectGremlin(app: Awaited<ReturnType<typeof open>>, password: string) {
     await app.press("id:connection");
     await app.waitFor("id:connect-dialog");
-    await app.press("id:connect-kind-gremlin");
+    await app.press("id:driver-gremlin");
     await app.clear("id:connect-gremlin-url");
     await app.type("id:connect-gremlin-url", "http://localhost:8182");
     await app.type("id:connect-gremlin-user", "stephen");
@@ -348,7 +402,7 @@ export function appTests(platform: "windows" | "macos") {
     const app = await open("./App.tsx", { ...DESKTOP, network: gremlinServer(seen) });
     await app.waitFor("id:example-Person");
     await connectGremlin(app, "password");
-    await app.waitFor("text:Connected to Gremlin · localhost:8182.");
+    await app.waitFor("text:Connected to localhost:8182.");
     for (const t of ["person", "software", "created", "knows"]) expect(app.texts()).toContain(t);
 
     await app.type("id:search", "person created software");
@@ -357,7 +411,7 @@ export function appTests(platform: "windows" | "macos") {
     expect(seen).toContain(
       "g.V().hasLabel('person').as('n0').outE('created').as('r0').inV().hasLabel('software').as('n1').limit(100).select('n0', 'r0', 'n1').by(elementMap())",
     );
-    expect(JSON.parse(app.storage().connection).gremlin).toEqual({ url: "http://localhost:8182", user: "stephen", traversal: "g" });
+    expect(JSON.parse(app.storage().connections)[0].settings).toEqual({ kind: "gremlin", url: "http://localhost:8182", user: "stephen", traversal: "g" });
   });
 
   test("a Gremlin server's refusal shows in the dialog", async () => {
@@ -375,7 +429,7 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("id:example-Person");
     await app.press("id:connection");
     await app.waitFor("id:connect-dialog");
-    await app.press("id:connect-kind-memgraph");
+    await app.press("id:driver-memgraph");
     await app.clear("id:connect-bolt-url");
     await app.type("id:connect-bolt-url", "bolt://127.0.0.1:1");
     await app.press("id:connect-submit");
