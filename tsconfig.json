@@ -2,11 +2,10 @@
   "extends": "./.nsh/tsconfig.json",
   "compilerOptions": {
     "paths": {
-      "nsh-graph": ["../nsh-graph/src/index.ts"],
       "nsh": ["./.nsh/types/nsh/index.d.ts"],
       "nsh/*": ["./.nsh/types/nsh/*.d.ts"],
       "*": ["./.nsh/types/*.d.ts"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "../nsh-graph/src/**/*.ts", "../nsh-graph/src/**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

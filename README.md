@@ -20,8 +20,9 @@ nsh check               # type check (builds the Rust crate first)
 cargo test --lib -- --ignored --nocapture   # print which Cypher forms HawDB accepts
 ```
 
-nsh-graph is resolved from `../nsh-graph` (`nsh.json` → `resolve.alias`). The Rust crate (`Cargo.toml`, `src/`) is
-declared in `nsh.json` (`"rust": "."`), so the first run builds HawDB, which takes a few minutes.
+nsh-graph is an nshm from crates.io (`nsh.json` → `"dependencies"`, pinned in `nsh.lock`; `nsh upgrade nsh-graph`
+updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`), so the first run builds
+HawDB, which takes a few minutes.
 
 ## What it does
 
