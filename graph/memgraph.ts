@@ -126,7 +126,7 @@ export class MemgraphSource implements GraphSource {
 
   async search(spec: SearchSpec, limit: number): Promise<GraphResult> {
     const res = await this.run(searchStatement(spec, limit, this.schemaCache, "memgraph"));
-    return { nodes: res.nodes, rels: res.rels, rows: res.cells.length };
+    return { nodes: res.nodes, rels: res.rels, rows: res.cells.length, table: { columns: res.columns, rows: res.rows } };
   }
 
   async expand(ids: string[], options: ExpandOptions): Promise<GraphResult> {

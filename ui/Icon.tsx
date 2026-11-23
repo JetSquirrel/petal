@@ -37,6 +37,13 @@ const PATHS = {
   alert: "M12 3 L22 20 H2 Z M12 10 V14 M12 17 V17.1",
   image: "M4 5 H20 V19 H4 Z M4 16 L9 11 L13 15 L15.5 12.5 L20 17 M15 8.5 A1 1 0 1 0 15 9.5",
   sliders: "M4 7 H14 M18 7 H20 M14 5 V9 M4 17 H8 M12 17 H20 M8 15 V19",
+  play: "M7 5 L19 12 L7 19 Z",
+  chevronUp: "M6 15 L12 9 L18 15",
+  notebook: "M6 3 H18 A1 1 0 0 1 19 4 V20 A1 1 0 0 1 18 21 H6 Z M6 3 V21 M3.5 7 H8.5 M3.5 12 H8.5 M3.5 17 H8.5 M11 8 H16 M11 12 H16",
+  table: "M4 5 H20 V19 H4 Z M4 10 H20 M4 14.5 H20 M10 5 V19",
+  graph: "M6 7 A2 2 0 1 0 6 3 A2 2 0 1 0 6 7 M18 13 A2 2 0 1 0 18 9 A2 2 0 1 0 18 13 M8 21 A2 2 0 1 0 8 17 A2 2 0 1 0 8 21 M7.8 5.9 L16.2 10.1 M16.4 12.2 L9.6 17.8 M6.4 7 L7.6 17",
+  plug: "M9 3 V8 M15 3 V8 M6 8 H18 V11 A6 6 0 0 1 6 11 Z M12 17 V21",
+  key: "M8 11 A4 4 0 1 0 8 19 A4 4 0 1 0 8 11 M10.8 12.2 L19 4 M16 7 L18.5 9.5 M14 9 L16 11",
 } as const;
 
 export type IconName = keyof typeof PATHS;

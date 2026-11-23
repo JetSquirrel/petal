@@ -12,6 +12,8 @@ import { ConnectDialog } from "./components/ConnectDialog";
 import { Header } from "./components/Header";
 import { canSelectAll, fitSelection, selectAll } from "./store/graphSelection";
 import { Inspector } from "./components/Inspector";
+import { McpDialog } from "./components/McpDialog";
+import { Notebook } from "./components/Notebook";
 import { PerspectivePanel } from "./components/PerspectivePanel";
 import { Scene } from "./components/Scene";
 import { focusSearch } from "./components/SearchBar";
@@ -28,6 +30,7 @@ function App() {
 
   const width = () => windowSize().width;
   const selection = () => store.selectedNode() !== null || store.selectedRel() !== null;
+  const notebook = () => store.settings().mode === "notebook";
 
   return (
     <AppContext.Provider value={store}>
@@ -37,22 +40,29 @@ function App() {
           <If when={store.panelOpen() && width() >= 760}>
             <PerspectivePanel />
           </If>
-          <Scene />
-          <If when={selection()}>
-            <If
-              when={width() >= 1060}
-              else={
-                <View class="absolute bottom-0 right-0 top-0 flex-row shadow-xl">
-                  <Inspector />
-                </View>
-              }
-            >
-              <Inspector />
+          {/* The scene stays mounted under the notebook, so its layout is where it was when you come back. */}
+          <View class={`relative flex-1 flex-row ${notebook() ? "hidden" : ""}`}>
+            <Scene />
+            <If when={selection()}>
+              <If
+                when={width() >= 1060}
+                else={
+                  <View class="absolute bottom-0 right-0 top-0 flex-row shadow-xl">
+                    <Inspector />
+                  </View>
+                }
+              >
+                <Inspector />
+              </If>
             </If>
+          </View>
+          <If when={notebook()}>
+            <Notebook />
           </If>
         </View>
       </View>
       <ConnectDialog />
+      <McpDialog />
     </AppContext.Provider>
   );
 }
@@ -69,6 +79,8 @@ function installMenu(store: AppStore) {
         submenu: [
           { label: "Connect to a database…", shortcut: "mod+o", onSelect: () => store.connectOpen.set(true) },
           { label: "Use the demo graph", onSelect: () => store.useDemo() },
+          { type: "separator" },
+          { label: "Connect an assistant (MCP)…", onSelect: () => store.mcpOpen.set(true) },
           { type: "separator" },
           { role: "quit" },
         ],
@@ -87,7 +99,18 @@ function installMenu(store: AppStore) {
       {
         label: "View",
         submenu: [
-          { label: "Search", shortcut: "mod+k", onSelect: focusSearch },
+          { label: "Explore", shortcut: "mod+1", checked: settings.mode === "explore", onSelect: () => store.setMode("explore") },
+          { label: "Notebook", shortcut: "mod+2", checked: settings.mode === "notebook", onSelect: () => store.setMode("notebook") },
+          { type: "separator" },
+          {
+            label: "Search",
+            shortcut: "mod+k",
+            onSelect: () => {
+              store.setMode("explore");
+              // The search field mounts with the explore mode: focus it once it has.
+              setTimeout(focusSearch, 0);
+            },
+          },
           { label: "Perspective", shortcut: "mod+b", checked: store.panelOpen(), onSelect: () => store.panelOpen.update((o) => !o) },
           { label: "Relationship types", checked: settings.edgeLabels, onSelect: () => store.updateSettings({ edgeLabels: !settings.edgeLabels }) },
           { type: "separator" },

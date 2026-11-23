@@ -11,7 +11,7 @@
  * its source, type, rank and destination.
  */
 import { orient } from "./cypher";
-import { fromPlain, type DbNode, type DbRel, type GraphResult, type Value } from "./model";
+import { fromPlain, type DbNode, type DbRel, type GraphResult, type Table, type Value } from "./model";
 import {
   EMPTY_SCHEMA,
   SourceError,
@@ -179,7 +179,12 @@ export function gatewayGraph(result: GatewayResult): GraphResult {
       rels.set(r.id, r);
     }
   }
-  return { nodes: [...nodes.values()], rels: [...rels.values()], rows: result.tables.length };
+  return { nodes: [...nodes.values()], rels: [...rels.values()], rows: result.tables.length, table: gatewayTable(result) };
+}
+
+/** The gateway's rows under its headers. */
+export function gatewayTable(result: GatewayResult): Table {
+  return { columns: result.headers, rows: result.tables.map((row) => result.headers.map((h) => gatewayValue(row[h]))) };
 }
 
 const column = (row: GatewayRow, name: string) => row[name];

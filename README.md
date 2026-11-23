@@ -8,7 +8,9 @@ graph with [nsh-graph](../nsh-graph). It runs as a native app on Windows, macOS 
 HawDB).
 
 You search with phrases instead of queries, bring in neighbors one double-click at a time, and set how each category
-looks. It starts on a built-in demo graph, so it works before you connect a database.
+looks. When you do want queries, the notebook keeps each one with its result as a graph, a table and raw rows. An
+assistant such as Claude Code can work with you over MCP. It starts on a built-in demo graph, so it works before you
+connect a database.
 
 ## Run it
 
@@ -51,7 +53,16 @@ HawDB, which takes a few minutes.
   properties as JSON.
 - **Layouts.** Force, tree (hierarchical), circle and grid. Use pan, zoom and fit on the canvas, and toggle the
   relationship-type labels.
-- **Keyboard.** Ctrl/⌘ + K to search, + B to toggle the perspective panel, + Z to undo, + 0 to fit, + O to connect.
+- **Notebook.** The Explore / Notebook switch in the header (Ctrl/⌘ + 1 and + 2) turns the scene into a notebook, as
+  a database's own browser has one. Type a query in the database's language, or any search phrase, and press Run or
+  Ctrl/⌘ + Enter. Each run becomes a frame at the top, with its result as a **Graph**, a **Table** or the **Raw** rows
+  as JSON, and how long it took. Click a frame's query to edit and run it again. A frame can also run again as it is,
+  add its result to the scene, fold, or close. Petal remembers the frames for each database (their queries, not their
+  results), and they come back folded the next time you connect. On the demo graph, frames run search phrases.
+- **Assistants (MCP).** Petal can run an MCP server, so Claude Code or another MCP client can read the schema, run
+  queries, look at your scene, and add to it and to your notebook. See [Assistants (MCP)](#assistants-mcp).
+- **Keyboard.** Ctrl/⌘ + K to search, + B to toggle the perspective panel, + Z to undo, + 0 to fit, + O to connect,
+  + 1 and + 2 to explore or use the notebook, + Enter to run in the notebook.
 
 ## Connecting
 
@@ -130,16 +141,61 @@ engine (`src/tests.rs`):
 HawDB isn't available in the web build: the crate compiles HawDB only for native targets, and on the web opening a
 database explains why it can't.
 
+## Assistants (MCP)
+
+The plug button in the header (or File → Connect an assistant) opens Petal's MCP settings. Turn on **Run the MCP
+server**, and Petal listens at `http://127.0.0.1:7470/mcp` (the port can be changed). It speaks MCP's Streamable HTTP
+transport and answers each request with JSON. Add it to Claude Code with the command the dialog shows:
+
+```sh
+claude mcp add --transport http petal http://127.0.0.1:7470/mcp --header "Authorization: Bearer <token>"
+```
+
+The dialog also shows the same setup as JSON, for a project's `.mcp.json`, Cursor, and other clients that connect to
+a URL. The tools work on whatever database Petal is connected to at the moment:
+
+| Tool | Does |
+|---|---|
+| `get_schema` | the database's kind and query language, its labels and relationship types with counts, and which labels each type joins |
+| `run_query` | runs a query in the database's own language and returns its columns and rows (at most 200), plus the nodes and relationships in them |
+| `search` | finds nodes with a search phrase, the same phrases the search field takes |
+| `expand` | the neighbors of nodes, optionally of one relationship type and direction |
+| `get_scene` | the nodes and relationships in your scene, and the ones you selected |
+| `add_to_notebook` | runs a query or phrase in a new notebook frame, marked *Assistant*, and returns what it found |
+
+`run_query`, `search` and `expand` take `show: true` to bring what they found into your scene. The dialog lists the
+calls assistants made lately.
+
+How Petal keeps the server safe:
+
+- **It listens on 127.0.0.1 only**, and is off until you turn it on. Petal remembers whether it was on.
+- **Every request needs the token.** Petal makes a random one the first time, shows it in the dialog, and can make a
+  new one, which disconnects clients set up with the old one.
+- **Web pages can't call it.** A request whose `Origin` isn't this computer, or whose `Host` isn't `localhost` or
+  `127.0.0.1` (DNS rebinding), is refused.
+- **Queries that write are refused** unless you turn on **Allow queries that write**: Cypher's `CREATE`, `MERGE`,
+  `SET`, `DELETE`, `REMOVE`, `DROP`, `LOAD CSV` and procedures that aren't known to only read; nGQL's `INSERT`,
+  `UPDATE`, `DELETE` and the rest; Gremlin's `addV`, `addE`, `property` and `drop`. Petal finds them by reading
+  keywords (outside strings, quoted names and comments), so this stops mistakes, not a client set on writing. For
+  that, connect as a database user that can only read.
+
+The server needs sockets, so it is in the desktop apps, not the web build.
+
 ## How it is built
 
 ```
-App.tsx               the shell: header, perspective panel, scene, inspector; the menu bar
+App.tsx               the shell: header, perspective panel, scene or notebook, inspector; the menu bar
 nsh.json, theme.json  the app's settings and design tokens (light and dark)
-Cargo.toml, src/      the Rust crate: HawDB, exported to TSX as the class `HawDb` of `petal/native`
+Cargo.toml, src/      the Rust crate, `petal/native` in TSX: `HawDb` (lib.rs), `BoltClient` (bolt.rs) and
+                      `McpServer` (mcp.rs, the MCP server's HTTP endpoint on 127.0.0.1)
 ui/                   Petal's own styled components (Button, IconButton, TextField, Segmented, Popover, Icon, …)
-components/           the screens' parts: SearchBar, PerspectivePanel, Scene, Inspector, ConnectDialog, Header
+components/           the screens' parts: SearchBar, PerspectivePanel, Scene, Inspector, Notebook, ConnectDialog,
+                      McpDialog, Header
 store/                state and actions: app.ts (connections, search, expand), scene.ts (contents and undo),
-                      perspective.ts (category styles), sceneGraph.ts (what the canvas draws)
+                      perspective.ts (category styles), sceneGraph.ts (what the canvas draws), notebook.ts (frames),
+                      mcp.ts (the MCP server's settings and its request loop)
+mcp/                  MCP with no UI: protocol.ts (JSON-RPC over Streamable HTTP, the token and origin checks) and
+                      tools.ts (the tools, and the check for queries that write)
 graph/                data access, with no UI: model.ts, source.ts (the GraphSource interface), phrase.ts (search
                       phrases and suggestions), and one module per database: neo4j.ts and cypher.ts, nebula.ts
                       (gateway client and nGQL), hawdb.ts (HawDB's Cypher subset), demo.ts and demoData.ts
@@ -148,7 +204,13 @@ graph/                data access, with no UI: model.ts, source.ts (the GraphSou
 The UI never writes queries. Every question goes through `GraphSource` (`search`, `expand`, `relationshipsAmong`,
 `neighborhood`, `schema`), and each database answers it in its own dialect. Label and type names are always
 quoted, or checked where the dialect can't quote them. Typed words are passed as parameters on Neo4j, escaped into
-literals on NebulaGraph, and matched by Petal on HawDB.
+literals on NebulaGraph, and matched by Petal on HawDB. The notebook and the MCP tools go through `GraphSource`
+too. A query runs as `search({ kind: "raw" })`, whose result carries the rows (`GraphResult.table`) as well as the
+graph.
+
+The MCP server is split between Rust and TSX, because TSX can't listen on a socket. `McpServer` accepts connections,
+reads each HTTP request and hands it to TSX (`next()`). TSX answers (`respond()`) with what `mcp/protocol.ts`
+decides. A request TSX doesn't answer within two minutes gets a 504.
 
 ## Tests
 
@@ -156,7 +218,13 @@ literals on NebulaGraph, and matched by Petal on HawDB.
 decoding of Neo4j's typed JSON, the gateway's rows and HawDB's rows; and the demo database. `App.test.tsx` drives the
 app itself. It covers searching, the suggestion list, undo, hiding categories, selecting and expanding a node, and a
 narrow window. It connects to a Neo4j server and a NebulaGraph gateway that the test plays, including wrong
-passwords. It also opens a real embedded HawDB, loads the demo graph into it, and explores it.
+passwords. It also opens a real embedded HawDB, loads the demo graph into it, and explores it. In notebook mode it runs
+phrases and Cypher into frames, switches views, reruns, folds, closes and remembers frames, and adds a result to the
+scene. It turns the MCP server on and off.
+
+`mcp/mcp.test.ts` covers the MCP protocol (initialize, tools, notifications, batches, errors), the token, origin and
+host checks, the write check across Cypher, nGQL and Gremlin, and each tool on the demo graph. `src/mcp_tests.rs`
+sends real HTTP to the endpoint: bodies in pieces, malformed and oversized requests, stopping, and a port in use.
 
 ## Limits
 
@@ -166,5 +234,9 @@ passwords. It also opens a real embedded HawDB, loads the demo graph into it, an
   a couple of thousand, the tree, circle or grid layout is quicker still.
 - Text search scans every node's properties and doesn't use full-text indexes, so it will be slow on large databases.
 - Petal needs Neo4j 5 or later.
+- The MCP server answers each request with JSON and has no event stream, so it doesn't send progress or
+  notifications. It speaks HTTP/1.1, one request per connection.
+- The notebook keeps queries, not results, between sessions, and a frame's table shows nodes inside rows as their
+  labels. The graph view and the tool results carry their properties.
 - Context menus and the menu bar are desktop features. On the web and on touch screens, the inspector and toolbar
   do the same things.

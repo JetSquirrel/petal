@@ -31,12 +31,20 @@ export interface DbRel {
   properties: Record<string, Value>;
 }
 
+/** A query's rows as the database returned them, nodes and relationships in them as `Text` values. */
+export interface Table {
+  columns: string[];
+  rows: Value[][];
+}
+
 /** The graph part of a query's result. */
 export interface GraphResult {
   nodes: DbNode[];
   rels: DbRel[];
   /** Rows the query returned, graph or not. */
   rows: number;
+  /** The rows themselves, when the source keeps them: the notebook's table, and what MCP tools answer with. */
+  table?: Table;
 }
 
 export const EMPTY_RESULT: GraphResult = { nodes: [], rels: [], rows: 0 };

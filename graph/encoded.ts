@@ -60,7 +60,12 @@ function collect(v: Encoded, nodes: Map<string, DbNode>, rels: Map<string, DbRel
 /** Reads what `HawDb.query` and `BoltClient.query` return. */
 export function decodeRows(json: string): NativeResult {
   const parsed = JSON.parse(json) as { columns: string[]; rows: Encoded[][] };
-  return { columns: parsed.columns, cells: parsed.rows, ...graphOf(parsed.rows), rows: parsed.rows.map((r) => r.map(plain)) };
+  return { columns: parsed.columns, cells: parsed.rows, ...graphOf(parsed.rows), rows: plainRows(parsed.rows) };
+}
+
+/** Rows as values: a node or relationship shows as text. */
+export function plainRows(cells: Encoded[][]): Value[][] {
+  return cells.map((r) => r.map(plain));
 }
 
 export function graphOf(cells: Encoded[][]): { nodes: DbNode[]; rels: DbRel[] } {
