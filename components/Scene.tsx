@@ -94,7 +94,7 @@ function SceneToolbar() {
   );
 }
 
-function Notice() {
+export function Notice() {
   const store = useStore();
   return (
     <If when={store.notice()}>

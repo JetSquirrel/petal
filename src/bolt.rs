@@ -9,28 +9,15 @@ use nsh_core::prelude::*;
 mod imp {
     use neo4rs::{BoltList, BoltMap, BoltNode, BoltNull, BoltPath, BoltRelation, BoltString, BoltType, ConfigBuilder, Graph, query};
     use serde_json::{Map, Value as Json, json};
+    use crate::runtime::runtime;
     use std::collections::HashMap;
-    use std::sync::OnceLock;
     use std::time::Duration;
-    use tokio::runtime::Runtime;
 
     const REACH_TIMEOUT: Duration = Duration::from_secs(5);
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
     const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 
-    fn runtime() -> &'static Runtime {
-        static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-        RUNTIME.get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .thread_name("petal-bolt")
-                .enable_all()
-                .build()
-                .expect("a Tokio runtime for Bolt")
-        })
-    }
-
-    /// Runs `work` on the Bolt runtime; the caller awaits it from NSH's executor.
+    /// Runs `work` on Petal's Tokio runtime; the caller awaits it from NSH's executor.
     async fn on_runtime<T: Send + 'static>(
         limit: Duration,
         work: impl std::future::Future<Output = Result<T, String>> + Send + 'static,

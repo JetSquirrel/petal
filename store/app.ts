@@ -11,8 +11,10 @@ import { MemgraphSource } from "../graph/memgraph";
 import { NebulaSource } from "../graph/nebula";
 import { Neo4jSource } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
-import { phraseOf } from "../graph/phrase";
-import { selectionNodes } from "./graphSelection";
+import { parsePhrase, phraseOf } from "../graph/phrase";
+import { selectedIds, selectionNodes } from "./graphSelection";
+import { createMcp } from "./mcp";
+import { createNotebook, type FrameAuthor } from "./notebook";
 import { EMPTY_SCHEMA, errorMessage, type Direction, type GraphSource, type Schema, type SearchSpec } from "../graph/source";
 import { createPerspective } from "./perspective";
 import { createScene } from "./scene";
@@ -28,12 +30,16 @@ export interface Notice {
   tone: "info" | "error";
 }
 
+/** What the main area shows: the scene to explore, or the notebook of queries. */
+export type Mode = "explore" | "notebook";
+
 export interface Settings {
   /** The most rows a search or expansion brings in. */
   limit: number;
   layout: LayoutKind;
   labelMode: LabelMode;
   edgeLabels: boolean;
+  mode: Mode;
 }
 
 const SETTINGS_KEY = "settings";
@@ -44,7 +50,7 @@ const CONNECTIONS_KEY = "connections";
 /** The most nodes a scene holds (Bloom's default is 10 000): nsh-graph's Rust layout settles 5 000 in about 5 s. */
 export const SCENE_LIMIT = 5000;
 
-const DEFAULT_SETTINGS: Settings = { limit: 100, layout: "force", labelMode: "auto", edgeLabels: false };
+const DEFAULT_SETTINGS: Settings = { limit: 100, layout: "force", labelMode: "auto", edgeLabels: false, mode: "explore" };
 
 export interface AppStoreOptions {
   /** Starts on this source instead of the demo graph (tests). */
@@ -73,7 +79,15 @@ export function createAppStore(options: AppStoreOptions = {}) {
   const passwords = new Map<string, string>();
   /** Shown while the connection dialog is open. */
   const connectOpen = signal(false);
+  /** Shown while the MCP dialog (Connect an assistant) is open. */
+  const mcpOpen = signal(false);
   const panelOpen = signal(true);
+  const notebook = createNotebook({
+    source: () => source(),
+    schema: () => schema(),
+    limit: () => settings().limit,
+    onResult: (r) => perspective.register(r.nodes.flatMap((n) => n.labels)),
+  });
 
   let noticeId = 0;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -124,7 +138,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
       graph.clearSelection();
     });
     try {
-      await perspective.load(next.key);
+      await Promise.all([perspective.load(next.key), notebook.load(next.key)]);
       const s = await next.schema();
       if (source() !== next) return;
       batch(() => {
@@ -141,6 +155,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
 
   async function start() {
     await restore();
+    void mcp.restore();
     await use(source());
   }
 
@@ -313,6 +328,33 @@ export function createAppStore(options: AppStoreOptions = {}) {
     });
   }
 
+  /** Brings a notebook frame's result, or an assistant's, into the scene, and says what it added. */
+  async function showResult(result: GraphResult, by: FrameAuthor = "you") {
+    const change = await bring(result);
+    const text = describeChange(change, result.rows);
+    notify(by === "assistant" ? `Assistant: ${text}` : text);
+    return change;
+  }
+
+  function setMode(mode: Mode) {
+    if (settings().mode !== mode) updateSettings({ mode });
+  }
+
+  const mcp = createMcp({
+    source: () => source(),
+    schema: () => schema(),
+    ready: () => connection() === "ready",
+    parse: (text) => parsePhrase(text, schema(), source().language),
+    limit: () => settings().limit,
+    scene: () => ({ nodes: [...scene.nodes().values()], rels: [...scene.rels().values()], selected: selectedIds(graph) }),
+    show: (result) => showResult(result, "assistant"),
+    notebook: async (text) => {
+      notify("Assistant: added a frame to the notebook.");
+      return notebook.run(text, "assistant");
+    },
+    allowWrites: () => mcp.settings().allowWrites,
+  });
+
   function dismiss(ids: string[]) {
     const n = scene.dismiss(ids);
     if (n) notify(`Dismissed ${n} ${n === 1 ? "node" : "nodes"}.`);
@@ -373,7 +415,12 @@ export function createAppStore(options: AppStoreOptions = {}) {
     connections,
     activeConnection,
     connectOpen,
+    mcpOpen,
     panelOpen,
+    notebook,
+    mcp,
+    setMode,
+    showResult,
     selectedNode,
     selectedNodes,
     selectedRel,

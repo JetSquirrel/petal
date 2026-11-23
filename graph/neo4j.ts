@@ -281,7 +281,7 @@ export class Neo4jSource implements GraphSource {
 
   async search(spec: SearchSpec, limit: number): Promise<GraphResult> {
     const res = await this.run(searchStatement(spec, limit, this.schemaCache));
-    return { nodes: res.nodes, rels: res.rels, rows: res.rows.length };
+    return { nodes: res.nodes, rels: res.rels, rows: res.rows.length, table: { columns: res.fields, rows: res.rows } };
   }
 
   async expand(ids: string[], options: ExpandOptions): Promise<GraphResult> {

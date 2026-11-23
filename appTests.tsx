@@ -87,6 +87,108 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("text:Queries need a database. Connect to Neo4j, NebulaGraph or HawDB to run one.");
   });
 
+  // --- Notebook mode --------------------------------------------------------------------------------------
+
+  test("the notebook runs a phrase into a frame with graph, table and raw views, and adds it to the scene", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.press("id:mode-notebook");
+    await app.waitFor("id:notebook-empty");
+    expect(app.shows("id:search")).toBe(false);
+    expect(app.enabled("id:notebook-run")).toBe(false);
+
+    await app.type("id:notebook-input", "Company WORKS_AT Person Inês");
+    await app.press("id:notebook-run");
+    await app.waitFor("id:frame-0-summary");
+    expect(app.texts().find((t) => / in \d+ ms$/.test(t))).toMatch(/^2 nodes, 1 relationship in \d+ ms$/);
+    expect(app.texts()).toContain("Company WORKS_AT Person Inês");
+    expect(app.shows("id:frame-0-graph")).toBe(true);
+    expect(app.value("id:notebook-input")).toBe("");
+
+    await app.press("id:frame-0-view-table");
+    await app.waitFor("id:frame-0-table");
+    await app.press("id:frame-0-view-raw");
+    await app.waitFor("id:frame-0-raw");
+    expect(app.value("id:frame-0-raw")).toContain('"labels / type": "WORKS_AT"');
+
+    await app.press("id:frame-0-to-scene");
+    await app.waitFor("text:Added 2 nodes and 1 relationship.");
+    await app.press("id:mode-explore");
+    await app.waitFor("id:search");
+    expect(stats(app.texts())).toBe("2 nodes, 1 relationship");
+    expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([{ text: "Company WORKS_AT Person Inês", by: "you" }]);
+  });
+
+  test("frames stack newest first, run again, fold and close; the notebook comes back next time", async () => {
+    const app = await open("./App.tsx", {
+      ...DESKTOP,
+      storage: { settings: JSON.stringify({ mode: "notebook" }), "notebook:demo": JSON.stringify([{ text: "Language" }]) },
+    });
+    await app.waitFor("id:frame-0");
+    expect(app.texts()).toContain("Language");
+    await app.press("id:frame-0-fold");
+    await app.waitFor("text:Not run since Petal started.");
+    await app.press("id:frame-0-run");
+    await app.waitFor("id:frame-0-summary");
+
+    await app.type("id:notebook-input", "City");
+    await app.press("id:notebook-run");
+    await app.waitUntil(() => app.texts().filter((t) => / in \d+ ms$/.test(t)).length === 2);
+    expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([
+      { text: "City", by: "you" },
+      { text: "Language", by: "you" },
+    ]);
+
+    await app.press("id:frame-1-fold");
+    expect(app.shows("id:frame-1-summary")).toBe(false);
+    expect(app.shows("label:Edit: City")).toBe(true);
+    await app.press("id:frame-0-close");
+    await app.waitUntil(() => !app.shows("id:frame-1"));
+    expect(app.shows("label:Edit: City")).toBe(false);
+    expect(app.shows("label:Edit: Language")).toBe(true);
+    expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([{ text: "Language", by: "you" }]);
+  });
+
+  test("a frame that fails says why", async () => {
+    const app = await open("./App.tsx", { ...DESKTOP, storage: { settings: JSON.stringify({ mode: "notebook" }) } });
+    await app.waitFor("id:notebook-empty");
+    await app.type("id:notebook-input", "MATCH (n) RETURN n");
+    await app.press("id:notebook-run");
+    await app.waitFor("id:frame-0-error");
+    expect(app.texts()).toContain("Queries need a database. Connect to Neo4j, NebulaGraph or HawDB to run one.");
+  });
+
+  // --- MCP -------------------------------------------------------------------------------------------------
+
+  test("the MCP dialog runs the server on this computer and shows how to connect to it", async () => {
+    const token = "0123456789abcdef0123456789abcdef";
+    const app = await open("./App.tsx", {
+      ...DESKTOP,
+      storage: { mcp: JSON.stringify({ enabled: false, port: 0, token, allowWrites: false }) },
+    });
+    await app.waitFor("id:example-Person");
+    await app.press("id:mcp");
+    await app.waitFor("id:mcp-dialog");
+    expect(app.texts()).toContain("Off. Assistants can't reach Petal.");
+    expect(app.texts().some((t) => t.includes(token))).toBe(true); // in the setup command
+    expect(app.texts()).not.toContain(token); // but the token field hides it
+
+    await app.press("id:mcp-enabled");
+    await app.waitUntil(() => app.texts().some((t) => /^Listening on http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(t)), { timeout: 8000 });
+    const endpoint = app.texts().find((t) => t.startsWith("Listening on "))!.slice("Listening on ".length);
+    expect(app.texts().some((t) => t.startsWith(`claude mcp add --transport http petal ${endpoint} --header`))).toBe(true);
+    expect(JSON.parse(app.storage().mcp)).toEqual({ enabled: true, port: 0, token, allowWrites: false });
+
+    await app.press("id:mcp-allow-writes");
+    expect(JSON.parse(app.storage().mcp).allowWrites).toBe(true);
+    await app.press("id:mcp-token-new");
+    expect(JSON.parse(app.storage().mcp).token).not.toBe(token);
+
+    await app.press("id:mcp-enabled");
+    await app.waitFor("text:Off. Assistants can't reach Petal.");
+    expect(JSON.parse(app.storage().mcp).enabled).toBe(false);
+  });
+
   // --- A Neo4j server played by the test ----------------------------------------------------------------
 
   const str = (v: string) => ({ $type: "String", _value: v });
@@ -126,6 +228,9 @@ export function appTests(platform: "windows" | "macos") {
           return rows(["p"], [[{ $type: "Path", _value: [node("4:a:1", "Person", "Ada Quill"), rel("5:a:1", "ACTED_IN", "4:a:1", "4:a:2"), node("4:a:2", "Movie", "The Long Field")] }]]);
         }
         if (st.startsWith("MATCH (a)-[r]->(b)")) return rows(["r"], [[rel("5:a:1", "ACTED_IN", "4:a:1", "4:a:2")]]);
+        if (st === "MATCH (m:Movie) RETURN m.title AS title, m.released AS released") {
+          return rows(["title", "released"], [[str("The Long Field"), int(1999)], [str("Quiet Harbor"), int(2004)]]);
+        }
         return { status: 400, body: { errors: [{ code: "Neo.ClientError.Statement.SyntaxError", message: `Unexpected statement: ${st}` }] } };
       },
     };
@@ -161,6 +266,29 @@ export function appTests(platform: "windows" | "macos") {
     const [saved] = JSON.parse(app.storage().connections);
     expect(saved.settings).toEqual({ kind: "neo4j", url: "localhost:7474", user: "neo4j", database: "movies" });
     expect(JSON.stringify(saved)).not.toContain("secret");
+  });
+
+  test("the notebook runs Cypher on Neo4j and shows its rows", async () => {
+    const seen: string[] = [];
+    const app = await open("./App.tsx", { ...DESKTOP, network: neo4j(seen) });
+    await app.waitFor("id:example-Person");
+    await connect(app, "secret");
+    await app.waitFor("text:Connected to localhost:7474/movies.");
+    await app.press("id:mode-notebook");
+    await app.waitFor("id:notebook-empty");
+    await app.type("id:notebook-input", "MATCH (m:Movie) RETURN m.title AS title, m.released AS released");
+    await app.press("id:notebook-run");
+    await app.waitFor("id:frame-0-summary");
+    expect(seen).toContain("MATCH (m:Movie) RETURN m.title AS title, m.released AS released");
+    expect(app.texts().find((t) => / in \d+ ms$/.test(t))).toMatch(/^2 rows in \d+ ms$/);
+    // No nodes to draw: the frame opens on its table.
+    await app.waitFor("id:frame-0-table");
+    await app.press("id:frame-0-view-raw");
+    await app.waitFor("id:frame-0-raw");
+    expect(JSON.parse(app.value("id:frame-0-raw")!)).toEqual([
+      { title: "The Long Field", released: 1999 },
+      { title: "Quiet Harbor", released: 2004 },
+    ]);
   });
 
   test("a wrong password is reported in the dialog", async () => {

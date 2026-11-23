@@ -5,15 +5,20 @@
 //! Petal's own value encoding (`graph/model.ts`): `{ "type": "Integer", "value": "42" }`, and so on.
 //! HawDB returns a node as a map holding `_id` and `labels` next to its properties, and a relationship as
 //! one holding `_id`, `source_id`, `target_id` and `type`; they come out as `Node` and `Relationship`.
+//!
+//! It also holds Petal's Bolt client (`bolt.rs`) and the HTTP endpoint of its MCP server (`mcp.rs`).
 
 use nsh_core::prelude::*;
 
 mod bolt;
+mod mcp;
+#[cfg(not(target_arch = "wasm32"))]
+mod runtime;
 
 /// The crate's exports (`nsh.json` `"rust"`).
 #[native_module("petal/native")]
 fn native(registry: &mut Registry) {
-    registry.class::<HawDb>().class::<bolt::BoltClient>();
+    registry.class::<HawDb>().class::<bolt::BoltClient>().class::<mcp::McpServer>();
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -14,7 +14,7 @@
 import { HawDb } from "petal/native";
 import { orient } from "./cypher";
 import { demoGraph } from "./demoData";
-import { decodeRows, graphOf, toNode, type Encoded, type NativeResult } from "./encoded";
+import { decodeRows, graphOf, plainRows, toNode, type Encoded, type NativeResult } from "./encoded";
 import { asNumber, valueText, type DbNode, type DbRel, type GraphResult } from "./model";
 import {
   EMPTY_SCHEMA,
@@ -267,9 +267,9 @@ export class HawDbSource implements GraphSource {
   async search(spec: SearchSpec, limit: number): Promise<GraphResult> {
     const st = hawSearch(spec, limit, this.schemaCache);
     const res = this.run(st);
-    if (!st.text) return { nodes: res.nodes, rels: res.rels, rows: res.cells.length };
+    if (!st.text) return { nodes: res.nodes, rels: res.rels, rows: res.cells.length, table: { columns: res.columns, rows: res.rows } };
     const rows = filterRows(res.cells, res.columns, st.text, limit);
-    return { ...graphOf(rows), rows: rows.length };
+    return { ...graphOf(rows), rows: rows.length, table: { columns: res.columns, rows: plainRows(rows) } };
   }
 
   async expand(nodeIds: string[], options: ExpandOptions): Promise<GraphResult> {
