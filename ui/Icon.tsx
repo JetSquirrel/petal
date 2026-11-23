@@ -6,6 +6,7 @@ import { Canvas, Path2D, token } from "nsh";
 
 const PATHS = {
   search: "M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14 M16.5 16.5 L21 21",
+  pencil: "M4 20 H8 L19 9 L15 5 L4 16 Z M13 7 L17 11",
   x: "M6 6 L18 18 M18 6 L6 18",
   plus: "M12 5 V19 M5 12 H19",
   minus: "M5 12 H19",
