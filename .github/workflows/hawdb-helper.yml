@@ -1,0 +1,80 @@
+# Builds `petal-hawdb` (hawdb-helper/), the HawDB program Petal's desktop builds download, and attaches
+# it to a GitHub release with its checksums. Runs when a `hawdb-helper-v<version>` tag is pushed; the
+# version must be hawdb-helper/Cargo.toml's. Then pin the checksums in Petal: `hawdb-helper/pin.sh <version>`.
+name: hawdb-helper
+
+on:
+  push:
+    tags: ["hawdb-helper-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: .exe, test: true }
+          - { os: windows-latest, target: aarch64-pc-windows-msvc, exe: .exe, test: false }
+          - { os: macos-14, target: aarch64-apple-darwin, exe: "", test: true }
+          - { os: macos-14, target: x86_64-apple-darwin, exe: "", test: false }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, exe: "", test: true }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, exe: "", test: true }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: hawdb-helper
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag names this version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          test "${GITHUB_REF_NAME}" = "hawdb-helper-v${version}" || { echo "tag ${GITHUB_REF_NAME} but Cargo.toml says ${version}"; exit 1; }
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: hawdb-helper
+          key: ${{ matrix.target }}
+      - if: matrix.test
+        run: cargo test --locked --release --target ${{ matrix.target }}
+      - run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          bin=target/${{ matrix.target }}/release/petal-hawdb${{ matrix.exe }}
+          if [ "${{ matrix.test }}" = "true" ]; then "$bin" --version; fi
+          mkdir -p ../dist
+          gzip -9 -n -c "$bin" > ../dist/petal-hawdb-${{ matrix.target }}.gz
+          ls -l ../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: petal-hawdb-${{ matrix.target }}
+          path: dist/petal-hawdb-${{ matrix.target }}.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum petal-hawdb-*.gz | tee SHA256SUMS
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "HawDB helper ${GITHUB_REF_NAME#hawdb-helper-v}" \
+            --notes "petal-hawdb, the HawDB program Petal's desktop builds download the first time HawDB is used. Petal checks each download against the SHA-256 it pins (SHA256SUMS)."

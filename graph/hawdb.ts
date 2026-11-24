@@ -1,10 +1,11 @@
 /**
- * HawDB (hawdb.ai): an embedded graph database, linked into Petal through its Rust crate (`src/lib.rs`,
+ * HawDB (hawdb.ai): an embedded graph database, reached through Petal's Rust crate (`src/hawdb.rs`,
  * imported as `petal/native`). There is no server: Petal opens a folder on this computer and owns it
- * while it is open.
+ * while it is open. On the desktops HawDB runs in `petal-hawdb`, a program Petal downloads the first
+ * time it is needed (`hawdbHelper.ts`); on the phones it is linked in.
  *
  * HawDB runs a subset of openCypher, which these statements keep to (each form was checked against the
- * engine, `src/tests.rs`):
+ * engine, `hawdb-helper/src/probes.rs`):
  * - paths can't be returned, so patterns return their nodes and relationships as columns;
  * - there are no schema procedures, so the schema is counted with `labels()` and `type()`;
  * - names can't be backticked, so labels and types must be plain identifiers;
@@ -12,6 +13,7 @@
  * - `startNode(r) = n` isn't an expression, so outgoing and incoming relationships are counted apart.
  */
 import { HawDb } from "petal/native";
+import { hawDbState, helperPath, missingMessage } from "./hawdbHelper";
 import { orient } from "./cypher";
 import { demoGraph } from "./demoData";
 import { decodeRows, graphOf, plainRows, toNode, type Encoded, type NativeResult } from "./encoded";
@@ -162,9 +164,11 @@ export class HawDbSource implements GraphSource {
   /** Opens (or creates) the database in `path` (`""`: in memory); `loadDemo` fills a new, empty one with the demo graph. */
   static async open(path: string, options: { loadDemo?: boolean } = {}): Promise<HawDbSource> {
     const folder = path.trim();
+    const state = hawDbState();
+    if (state !== "ready") throw new SourceError(missingMessage(state), "HAWDB_MISSING");
     let db: HawDb;
     try {
-      db = new HawDb(folder);
+      db = new HawDb(helperPath(), folder);
     } catch (e) {
       throw new SourceError(openError(e, folder), "HAWDB_OPEN");
     }

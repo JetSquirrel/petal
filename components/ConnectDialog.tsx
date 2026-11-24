@@ -3,10 +3,11 @@
  * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
  * Drivers: Neo4j over its HTTP API, Memgraph and PuppyGraph over Bolt, TigerGraph over HTTP, Amazon Neptune over openCypher (signed with SigV4 when it
  * uses IAM), NebulaGraph through its HTTP gateway, a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop),
- * and HawDB embedded in Petal. Passwords (and AWS secrets) are kept only while the app runs.
+ * and HawDB on this computer (downloaded the first time on the desktops). Passwords (and AWS secrets) are kept only while the app runs.
  */
 import { signal, Scroll, Text, View } from "nsh";
 import { Dialog } from "nsh/base";
+import { DOWNLOAD_MB, missingMessage, type HawDbState } from "../graph/hawdbHelper";
 import { joinSecret, splitSecret } from "../graph/neptune";
 import { useStore } from "../store/app";
 import { addressOf, defaultSettings, toForm, type ConnectionSettings, type DriverKind, type SavedConnection } from "../store/connections";
@@ -367,6 +368,38 @@ function DriverPicker(props: { onPick: (kind: DriverKind) => void }) {
   );
 }
 
+/** HawDB isn't on this computer yet: what it takes, and the button that downloads it. */
+function HawDbDownload(props: { onError: (message: string) => void }) {
+  const store = useStore();
+  const state = () => store.hawDb();
+  const download = async () => {
+    const error = await store.installHawDb();
+    if (error) props.onError(error);
+  };
+  return (
+    <View class="gap-2 rounded-md border border-border p-3" testID="hawdb-download">
+      <Text class="text-xs text-muted-foreground">
+        {state() === "missing" || state() === "downloading"
+          ? `HawDB isn't on this computer yet. Petal downloads it once (about ${DOWNLOAD_MB} MB) from Petal's releases on GitHub, checks it, and keeps it with its data.`
+          : missingMessage(state() as HawDbState)}
+      </Text>
+      <If when={state() === "missing" || state() === "downloading"}>
+        <View class="flex-row">
+          <Button
+            size="sm"
+            variant="outline"
+            icon="download"
+            label={state() === "downloading" ? "Downloading HawDB…" : "Download HawDB"}
+            disabled={state() === "downloading"}
+            onPress={download}
+            testID="hawdb-download-start"
+          />
+        </View>
+      </If>
+    </View>
+  );
+}
+
 function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; onSaved: (c: SavedConnection) => void; onDeleted: () => void }) {
   const store = useStore();
   const driver = driverOf(props.kind);
@@ -499,6 +532,9 @@ function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; on
                 accessibilityLabel="Password"
               />
             </Field>
+          </If>
+          <If when={props.kind === "hawdb" && store.hawDb() !== "ready"}>
+            <HawDbDownload onError={(message) => status.set({ ok: false, message })} />
           </If>
           <If when={props.kind === "hawdb"}>
             <Switch label="Load the demo graph into a new, empty database" checked={loadDemo()} onChange={loadDemo.set} testID="connect-load-demo" />
