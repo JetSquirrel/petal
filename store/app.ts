@@ -17,7 +17,8 @@ import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { parsePhrase, phraseOf } from "../graph/phrase";
 import { selectedIds, selectionNodes } from "./graphSelection";
 import { createMcp } from "./mcp";
-import { createNotebook, type FrameAuthor } from "./notebook";
+import { createNotebook, NOTEBOOK_LIMIT, type FrameAuthor } from "./notebook";
+import { notebookFile, parseNotebookFile } from "./notebookFile";
 import { EMPTY_SCHEMA, errorMessage, type Direction, type GraphSource, type Schema, type SearchSpec } from "../graph/source";
 import { createPerspective } from "./perspective";
 import { createScene } from "./scene";
@@ -498,6 +499,38 @@ export function createAppStore(options: AppStoreOptions = {}) {
     await exportText(`Petal scene ${fileStamp()}.json`, sceneFile(snapshot(""), source().kind), `the scene (${n} ${n === 1 ? "node" : "nodes"})`);
   }
 
+  /** Writes the notebook's queries (not their results) to a file (`petal-notebook/1`). */
+  async function saveNotebook() {
+    const cells = notebook.cells();
+    if (cells.length === 0) return notify("The notebook is empty.");
+    const n = cells.length;
+    const text = notebookFile(cells, source().kind, source().language ?? "");
+    await exportText(`Petal notebook ${fileStamp()}.json`, text, `the notebook (${n} ${n === 1 ? "query" : "queries"})`);
+  }
+
+  /** Opens a notebook file the person picks, in place of the notebook's frames; its queries are not run yet. */
+  async function openNotebook() {
+    let picked: { name: string; text: string } | null;
+    try {
+      picked = await pickJsonFile("Petal notebook");
+    } catch (e) {
+      return notify(errorMessage(e), "error");
+    }
+    if (!picked) return;
+    const parsed = parseNotebookFile(picked.text);
+    if ("error" in parsed) return notify(parsed.error, "error");
+    const { cells, source: from } = parsed.notebook;
+    if (cells.length === 0) return notify("The notebook has no queries.", "error");
+    notebook.open(cells);
+    const n = Math.min(cells.length, NOTEBOOK_LIMIT);
+    const dropped = cells.length > NOTEBOOK_LIMIT ? ` (the newest ${NOTEBOOK_LIMIT} of ${cells.length})` : "";
+    if (from && from !== source().kind) {
+      notify(`Opened ${n} ${n === 1 ? "query" : "queries"}${dropped} written for a ${from} database; they may not run here.`, "error");
+    } else {
+      notify(`Opened ${n} ${n === 1 ? "query" : "queries"}${dropped} from ${picked.name}. Run them to see their results.`);
+    }
+  }
+
   /** Opens a scene file the person picks. */
   async function importScene() {
     let picked: { name: string; text: string } | null;
@@ -589,6 +622,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
     pasteScene,
     exportScene,
     importScene,
+    saveNotebook,
+    openNotebook,
     exportText,
     filesAvailable,
     setMode,

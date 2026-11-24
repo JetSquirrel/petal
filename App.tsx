@@ -72,6 +72,7 @@ function installMenu(store: AppStore) {
   effect(() => {
     const canUndo = store.scene.canUndo();
     const hasNodes = store.scene.nodes().size > 0;
+    const hasFrames = store.notebook.frames().length > 0;
     const settings = store.settings();
     Menu.setApplicationMenu([
       {
@@ -79,6 +80,9 @@ function installMenu(store: AppStore) {
         submenu: [
           { label: "Connect to a database…", shortcut: "mod+o", onSelect: () => store.connectOpen.set(true) },
           { label: "Use the demo graph", onSelect: () => store.useDemo() },
+          { type: "separator" },
+          { label: "Open notebook…", shortcut: "mod+shift+o", onSelect: () => store.openNotebook() },
+          { label: "Save notebook", shortcut: "mod+s", disabled: !hasFrames, onSelect: () => store.saveNotebook() },
           { type: "separator" },
           { label: "Connect an assistant (MCP)…", onSelect: () => store.mcpOpen.set(true) },
           { type: "separator" },

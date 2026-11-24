@@ -57,11 +57,11 @@ export async function exportFile(name: string, text: string): Promise<string> {
   return path;
 }
 
-/** Lets the person pick a JSON file and resolves with its text, or null when they cancel. */
-export async function pickJsonFile(): Promise<{ name: string; text: string } | null> {
+/** Lets the person pick a JSON file (`kind` names it in the picker) and resolves with its text, or null when they cancel. */
+export async function pickJsonFile(kind = "Petal scene"): Promise<{ name: string; text: string } | null> {
   const [picked] = await Picker.pickFiles({
     multiple: false,
-    filters: [{ name: "Petal scene", extensions: ["json"] }],
+    filters: [{ name: kind, extensions: ["json"] }],
     maxSize: 64 * 1024 * 1024,
   });
   if (!picked) return null;

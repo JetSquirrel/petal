@@ -251,6 +251,51 @@ export function appTests(platform: "windows" | "macos") {
     expect(app.texts()).toContain("The demo graph is read-only, so DELETE can't run. Open a HawDB database to change a graph.");
   });
 
+  test("a notebook file opens in place of the notebook, its queries not run until asked", async () => {
+    const app = await open("./App.tsx", {
+      ...DESKTOP,
+      storage: { settings: JSON.stringify({ mode: "notebook" }), "notebook:demo": JSON.stringify([{ text: "Language" }]) },
+    });
+    await app.waitFor("id:frame-0");
+    expect(app.enabled("id:notebook-save")).toBe(true);
+    const file = JSON.stringify({
+      format: "petal-notebook/1",
+      source: "demo",
+      language: "Cypher",
+      cells: [
+        { text: "City", by: "you", view: "table" },
+        { text: "Company WORKS_AT Person", by: "assistant", view: "graph" },
+      ],
+    });
+    app.onPick(() => [{ name: "team.json", type: "application/json", data: new TextEncoder().encode(file) }]);
+    await app.press("id:notebook-open");
+    await app.waitUntil(() => app.texts().includes("City"));
+    expect(app.picks()[0].filters[0].name).toBe("Petal notebook");
+    expect(app.texts()).toContain("Opened 2 queries from team.json. Run them to see their results.");
+    expect(app.shows("id:frame-2")).toBe(false);
+    expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([
+      { text: "City", by: "you" },
+      { text: "Company WORKS_AT Person", by: "assistant" },
+    ]);
+    await app.press("id:frame-0-fold");
+    await app.waitFor("text:Not run since Petal started.");
+    await app.press("id:frame-0-run");
+    await app.waitFor("id:frame-0-summary");
+  });
+
+  test("a file that isn't a notebook is refused and the notebook stays", async () => {
+    const app = await open("./App.tsx", {
+      ...DESKTOP,
+      storage: { settings: JSON.stringify({ mode: "notebook" }), "notebook:demo": JSON.stringify([{ text: "Language" }]) },
+    });
+    await app.waitFor("id:frame-0");
+    app.onPick(() => [{ name: "scene.json", data: new TextEncoder().encode(JSON.stringify({ format: "petal-scene/1", nodes: [], rels: [] })) }]);
+    await app.press("id:notebook-open");
+    await app.waitUntil(() => app.texts().includes("The file isn't a Petal notebook."));
+    expect(app.shows("id:frame-0")).toBe(true);
+    expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([{ text: "Language" }]);
+  });
+
   // --- MCP -------------------------------------------------------------------------------------------------
 
   test("the MCP dialog runs the server on this computer and shows how to connect to it", async () => {
