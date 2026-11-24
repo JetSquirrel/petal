@@ -81,10 +81,15 @@ Downloads (exports).
   as JSON, and how long it took. Click a frame's query to edit and run it again. A frame can also run again as it is,
   add its result to the scene, fold, or close. Petal remembers the frames for each database (their queries, not their
   results), and they come back folded the next time you connect. On the demo graph, frames run search phrases and read-only Cypher.
+  **Save** (Ctrl/⌘ + S) writes the notebook to a file in Downloads (`petal-notebook/1` JSON: each frame's query,
+  author and view, one per line block so it diffs well, plus the kind of database it was written for). **Open…**
+  (Ctrl/⌘ + Shift + O) replaces the frames with a file's queries, folded and not run, to run against the database
+  you're connected to. On the web, Save copies the file's JSON to the clipboard.
 - **Assistants (MCP).** Petal can run an MCP server, so Claude Code or another MCP client can read the schema, run
   queries, look at your scene, and add to it and to your notebook. See [Assistants (MCP)](#assistants-mcp).
 - **Keyboard.** Ctrl/⌘ + K to search, + B to toggle the perspective panel, + Z to undo, + 0 to fit, + O to connect,
-  + 1 and + 2 to explore or use the notebook, + J to toggle the table, + Enter to run in the notebook.
+  + 1 and + 2 to explore or use the notebook, + J to toggle the table, + Enter to run in the notebook, + S and
+  + Shift + O to save and open a notebook file.
 
 ## Connecting
 
@@ -293,7 +298,7 @@ store/                state and actions: app.ts (connections, search, expand, sa
                       and undo), perspective.ts (category styles), sceneGraph.ts (what the canvas draws),
                       sceneTable.ts (the table's rows, filter, sort, CSV and JSON), files.ts (exports, the file
                       picker, the data folder), savedScenes.ts (saved scenes
-                      and their JSON), notebook.ts (frames), mcp.ts (the MCP server's settings and its request loop)
+                      and their JSON), notebook.ts (frames), notebookFile.ts (notebook files), mcp.ts (the MCP server's settings and its request loop)
 mcp/                  MCP with no UI: protocol.ts (JSON-RPC over Streamable HTTP, the token and origin checks) and
                       tools.ts (the tools, and the check for queries that write)
 graph/                data access, with no UI: model.ts, source.ts (the GraphSource interface), phrase.ts (search

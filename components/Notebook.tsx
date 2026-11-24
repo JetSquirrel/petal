@@ -152,6 +152,18 @@ export function Notebook() {
       <Scroll class="flex-1">
         <View class="w-full max-w-[1120px] gap-3 self-center p-4">
           <QueryEditor />
+          <View class="flex-row justify-end gap-1">
+            <Button size="sm" variant="ghost" icon="folder" label="Open…" onPress={() => store.openNotebook()} testID="notebook-open" />
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="download"
+              label="Save"
+              disabled={nb.frames().length === 0}
+              onPress={() => store.saveNotebook()}
+              testID="notebook-save"
+            />
+          </View>
           <If when={nb.frames().length === 0}>
             <EmptyNotebook />
           </If>

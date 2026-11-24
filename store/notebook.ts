@@ -9,6 +9,7 @@
 import { signal, Storage } from "nsh";
 import { mergeResults, valueText, type GraphResult, type Table, type Value } from "../graph/model";
 import { parsePhrase } from "../graph/phrase";
+import type { NotebookCell } from "./notebookFile";
 import { errorMessage, SourceError, type GraphSource, type Schema } from "../graph/source";
 
 export type FrameView = "graph" | "table" | "raw";
@@ -158,10 +159,21 @@ export function createNotebook(deps: NotebookDeps) {
     save();
   }
 
+  /** The cells to write to a notebook file: each frame's text, author and view, newest first. */
+  const cells = (): NotebookCell[] => frames().map((f) => ({ text: f.text, by: f.by, view: f.view }));
+
+  /** Replaces the frames with a notebook file's cells, not run yet (at most `NOTEBOOK_LIMIT`). */
+  function open(list: NotebookCell[]) {
+    frames.set(
+      list.slice(0, NOTEBOOK_LIMIT).map((c) => ({ id: nextId++, text: c.text, status: "idle" as const, view: c.view, collapsed: true, by: c.by })),
+    );
+    save();
+  }
+
   const setView = (id: number, view: FrameView) => patch(id, { view });
   const toggleCollapsed = (id: number) => frames.update((list) => list.map((f) => (f.id === id ? { ...f, collapsed: !f.collapsed } : f)));
 
-  return { frames, draft, load, run, runDraft, rerun, close, clear, setView, toggleCollapsed };
+  return { frames, draft, load, run, runDraft, rerun, close, clear, cells, open, setView, toggleCollapsed };
 }
 
 export type Notebook = ReturnType<typeof createNotebook>;
