@@ -7,6 +7,7 @@ import { createGraphController, type GraphController, type LabelMode, type Layou
 import { DemoSource } from "../graph/demo";
 import { GremlinSource } from "../graph/gremlin";
 import { HawDbSource } from "../graph/hawdb";
+import { hawDbState, installHelper, type HawDbState } from "../graph/hawdbHelper";
 import { MemgraphSource } from "../graph/memgraph";
 import { NebulaSource } from "../graph/nebula";
 import { NeptuneSource } from "../graph/neptune";
@@ -111,6 +112,24 @@ export function createAppStore(options: AppStoreOptions = {}) {
     limit: () => settings().limit,
     onResult: (r) => perspective.register(r.nodes.flatMap((n) => n.labels)),
   });
+
+  /** Whether HawDB runs here, and while it downloads. */
+  const hawDb = signal<HawDbState | "downloading">(hawDbState());
+
+  /** Downloads HawDB's program (the desktops); resolves with an error message, or null once it runs. */
+  async function installHawDb(): Promise<string | null> {
+    if (hawDb() === "downloading") return null;
+    hawDb.set("downloading");
+    try {
+      const version = await installHelper();
+      hawDb.set(hawDbState());
+      notify(`Downloaded HawDB ${version}.`);
+      return null;
+    } catch (e) {
+      hawDb.set(hawDbState());
+      return errorMessage(e);
+    }
+  }
 
   let noticeId = 0;
   let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -595,6 +614,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
   });
 
   return {
+    hawDb,
+    installHawDb,
     graph,
     scene,
     perspective,

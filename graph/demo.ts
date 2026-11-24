@@ -16,6 +16,7 @@ import {
 } from "./source";
 import { orient } from "./cypher";
 import { HawDbSource } from "./hawdb";
+import { hawDbState, missingMessage } from "./hawdbHelper";
 import proc from "process";
 
 function demoValue(v: unknown): Value {
@@ -131,6 +132,8 @@ export class DemoSource implements GraphSource {
     if (!this.language) throw new SourceError("Queries need a database. Connect to Neo4j, NebulaGraph or HawDB to run one.", "NO_QUERY");
     const write = cypherWrite(statement);
     if (write) throw new SourceError(`The demo graph is read-only, so ${write} can't run. Open a HawDB database to change a graph.`, "READ_ONLY");
+    const state = hawDbState();
+    if (state !== "ready") throw new SourceError(`Cypher on the demo graph runs on HawDB. ${missingMessage(state)}`, "HAWDB_MISSING");
     if (!this.cypherDb) {
       this.cypherDb = HawDbSource.open("", { loadDemo: true });
       this.cypherDb.catch(() => (this.cypherDb = null));

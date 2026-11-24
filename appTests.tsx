@@ -583,6 +583,40 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("text:Connected to HawDB in memory.", { timeout: 15000 });
   }
 
+  test("without HawDB on this computer, its pane says how to get it and the demo graph's Cypher says why it can't run", async () => {
+    // A desktop where the helper was never downloaded (and no development build of it).
+    class NoHelper {
+      kind() {
+        return "download";
+      }
+      check() {
+        return "";
+      }
+      devPath() {
+        return "";
+      }
+      async install() {
+        throw new Error("no download in tests");
+      }
+      dispose() {}
+    }
+    const app = await open("./App.tsx", { ...DESKTOP, modules: { "petal/native": { HawDbHelper: NoHelper } } });
+    await app.waitFor("id:example-Person");
+    await app.type("id:search", "MATCH (n:Person) RETURN n LIMIT 5");
+    await app.submit("id:search");
+    await app.waitUntil(() => app.texts().some((t) => t.startsWith("Cypher on the demo graph runs on HawDB.")));
+
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-hawdb");
+    await app.waitFor("id:hawdb-download");
+    await app.clear("id:connect-path");
+    await app.press("id:connect-submit");
+    await app.waitFor("id:connect-error");
+    expect(app.texts().some((t) => t.includes("HawDB"))).toBe(true);
+    expect(app.texts()).not.toContain("Connected to HawDB in memory.");
+  });
+
   test("opens an embedded HawDB database, loads the demo graph and explores it", async () => {
     const app = await open("./App.tsx", DESKTOP);
     await app.waitFor("id:example-Person");

@@ -1,6 +1,6 @@
 //! Probes of the Cypher Petal sends to HawDB, against a real in-memory engine.
 
-use super::engine::Engine;
+use crate::Engine;
 
 fn probe(db: &mut Engine, write: bool, p: &str, params: &str) {
     let r = if write { db.execute(p, params) } else { db.query(p, params) };

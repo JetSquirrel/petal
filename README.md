@@ -4,8 +4,9 @@
 
 Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **PuppyGraph**, **TigerGraph**, **Amazon Neptune**,
 **NebulaGraph**, Gremlin servers and **HawDB**. It is a [Native Shell (NSH)](https://nsh.dev) app written in TSX, with
-a small Rust crate that embeds HawDB, and it draws the graph with [nsh-graph](../nsh-graph). It runs as a native app
-on Windows, macOS and Linux, and on the web (without HawDB).
+a small Rust crate, and it draws the graph with [nsh-graph](../nsh-graph). It runs as a native app on Windows, macOS
+and Linux, and on the web (without HawDB). On the desktops HawDB is a separate program that Petal downloads the first
+time you use it, so it isn't part of the app's download.
 
 You search with phrases instead of queries, bring in neighbors one double-click at a time, and set how each category
 looks. When you do want queries, the notebook keeps each one with its result as a graph, a table and raw rows. An
@@ -19,12 +20,14 @@ nsh run                 # this desktop
 nsh run --target web    # in a browser
 nsh test                # headless tests
 nsh check               # type check (builds the Rust crate first)
-cargo test --lib -- --ignored --nocapture   # print which Cypher forms HawDB accepts
+cargo build --release --manifest-path hawdb-helper/Cargo.toml   # HawDB for `nsh run` and `nsh test`
+cargo test --manifest-path hawdb-helper/Cargo.toml -- --ignored --nocapture   # print which Cypher forms HawDB accepts
 ```
 
 nsh-graph is an nshm from crates.io (`nsh.json` → `"dependencies"`, pinned in `nsh.lock`; `nsh upgrade nsh-graph`
-updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`), so the first run builds
-HawDB, which takes a few minutes. Package dependencies need nsh's nightly channel (`nsh update nightly`); 0.6.1, the
+updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`). Development builds run
+the HawDB helper built from this checkout (`hawdb-helper/target/release`), so build it once before `nsh run` or
+`nsh test`. That takes a few minutes. Package dependencies need nsh's nightly channel (`nsh update nightly`); 0.6.1, the
 latest release, ignores them.
 
 `nsh.json` grants what Petal uses: the network to any host (it connects to the databases you give it), the
@@ -224,14 +227,30 @@ and edges (`e_type`, `from_id`, `to_id`) wherever they appear in them.
 
 ### HawDB
 
-[HawDB](https://hawdb.ai) is an embedded database with no server. Petal links it as a library through its Rust crate
-(`src/lib.rs`, imported in TSX as `petal/native`) and opens a database folder on this computer. Enter a folder:
+[HawDB](https://hawdb.ai) is an embedded database with no server. Petal opens a database folder on this computer
+through its Rust crate (`src/hawdb.rs`, imported in TSX as `petal/native`). Enter a folder:
 HawDB creates the database there if it's missing, and an empty folder field opens an in-memory database. Turn on
 **Load the demo graph** to fill a new, empty database with Petal's demo graph. Only one process can open a folder at
 a time, so Petal closes it when you switch to another database.
 
+HawDB is about 36 MB of compiled code, more than the rest of Petal, so the desktop builds don't include it. Like the
+drivers DBeaver fetches, it comes on first use:
+
+- **The helper.** `hawdb-helper/` builds `petal-hawdb`, a small program around HawDB. Petal's Rust crate starts one
+  for each open database and exchanges JSON lines with it over its standard input and output; there is no network
+  port. The helper ends when its input closes, so it never keeps a folder locked after Petal quits or crashes.
+- **The download.** The first time you open a HawDB connection (or run Cypher on the demo graph), the HawDB pane
+  offers **Download HawDB**. Petal fetches the build for this computer from this repository's GitHub releases
+  (`hawdb-helper-v<version>`), checks it against the SHA-256 pinned in `graph/hawdbHelper.ts`, and keeps it in its
+  data folder under `hawdb/<version>/`. After that it works offline. A download that doesn't match is not kept.
+- **Phones** link HawDB in (`petal-hawdb` as a library), since iOS and Android don't run downloaded programs.
+- **Releasing a helper.** Bump `hawdb-helper/Cargo.toml`'s version and push the tag `hawdb-helper-v<version>`. The
+  `hawdb-helper` workflow builds it for Windows (x64, arm64), macOS (arm64, x64) and Linux (x64, arm64) and attaches
+  the gzipped programs and `SHA256SUMS` to a release. Then `hawdb-helper/pin.sh <version>` writes the version and
+  checksums into `graph/hawdbHelper.ts`. Until a build's checksum is pinned, Petal won't download it.
+
 HawDB runs a subset of openCypher, and Petal's statements stay inside it. Each form below was checked against the
-engine (`src/tests.rs`):
+engine (`hawdb-helper/src/probes.rs`):
 
 - Paths can't be returned, so patterns return their nodes and relationships as columns.
 - There are no schema procedures, so labels, types and patterns are counted with `labels()` and `type()`. This
@@ -241,8 +260,7 @@ engine (`src/tests.rs`):
 - There is no `keys()` or `any()`, so for text search Petal reads up to 20,000 candidates and filters them itself.
 - A node gets one label per `CREATE`, so the demo graph in HawDB keeps each node's first label.
 
-HawDB isn't available in the web build: the crate compiles HawDB only for native targets, and on the web opening a
-database explains why it can't.
+HawDB isn't available in the web build, and on the web opening a database explains why it can't.
 
 ## Assistants (MCP)
 
@@ -289,8 +307,10 @@ The server needs sockets, so it is in the desktop apps, not the web build.
 ```
 App.tsx               the shell: header, perspective panel, scene or notebook, inspector; the menu bar
 nsh.json, theme.json  the app's settings and design tokens (light and dark)
-Cargo.toml, src/      the Rust crate, `petal/native` in TSX: `HawDb` (lib.rs), `BoltClient` (bolt.rs) and
-                      `McpServer` (mcp.rs, the MCP server's HTTP endpoint on 127.0.0.1)
+Cargo.toml, src/      the Rust crate, `petal/native` in TSX: `HawDb` and `HawDbHelper` (hawdb.rs), `BoltClient`
+                      (bolt.rs) and `McpServer` (mcp.rs, the MCP server's HTTP endpoint on 127.0.0.1)
+hawdb-helper/         `petal-hawdb`, the HawDB program the desktops download (a workspace of its own), and
+                      pin.sh; .github/workflows/hawdb-helper.yml releases it
 ui/                   Petal's own styled components (Button, IconButton, TextField, Segmented, Popover, Icon, …)
 components/           the screens' parts: SearchBar, PerspectivePanel, Scene, SceneTable, ScenesMenu, Inspector,
                       Notebook, ConnectDialog, McpDialog, Header
@@ -324,7 +344,8 @@ decides. A request TSX doesn't answer within two minutes gets a 504.
 decoding of Neo4j's typed JSON, the gateway's rows and HawDB's rows; and the demo database. `App.test.tsx` drives the
 app itself. It covers searching, the suggestion list, undo, hiding categories, selecting and expanding a node, and a
 narrow window. It connects to a Neo4j server and a NebulaGraph gateway that the test plays, including wrong
-passwords. It also opens a real embedded HawDB, loads the demo graph into it, and explores it. In notebook mode it runs
+passwords. It also opens a real HawDB (the helper built from this checkout), loads the demo graph into it, and
+explores it. In notebook mode it runs
 phrases and Cypher into frames, switches views, reruns, folds, closes and remembers frames, and adds a result to the
 scene. It turns the MCP server on and off.
 
