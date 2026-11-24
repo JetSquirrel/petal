@@ -139,6 +139,9 @@ function QueryCode(props: {
   );
 }
 
+/** The prompts beside the editors, in the editor's own font size and row height, so they sit on its first line. */
+const PROMPT = { fontSize: 13, lineHeight: 20 };
+
 const runKeys = (e: { key: string; modifiers: { control: boolean; platform: boolean } }) => e.key === "Enter" && (e.modifiers.control || e.modifiers.platform);
 
 export function Notebook() {
@@ -175,8 +178,8 @@ function QueryEditor() {
   const language = () => store.source().language;
   const hint = () => (language() ? `A ${language()} query or a search phrase` : "A search phrase: a label, a pattern, or words");
   return (
-    <Surface class="flex-row items-start gap-2 p-2" testID="notebook-editor">
-      <Text class="pl-1 pt-[3px] font-mono text-sm text-muted-foreground">petal$</Text>
+    <Surface class={`flex-row gap-2 p-2 ${nb.draft().includes("\n") ? "items-start" : "items-center"}`} testID="notebook-editor">
+      <Text class="pl-1 font-mono text-muted-foreground" style={PROMPT}>petal$</Text>
       <View
         class="flex-1"
         captureKeys={["mod+enter"]}
@@ -254,8 +257,8 @@ function FrameCard(props: { frame: Frame; index: number }) {
 
   return (
     <Surface class="overflow-hidden p-0" testID={`frame-${props.index}`}>
-      <View class="flex-row items-start gap-2 border-b border-border bg-muted/40 px-3 py-2">
-        <Text class="pt-[3px] font-mono text-sm text-muted-foreground">$</Text>
+      <View class={`flex-row gap-2 border-b border-border bg-muted/40 px-3 py-2 ${editing() || f().text.includes("\n") ? "items-start" : "items-center"}`}>
+        <Text class="font-mono text-muted-foreground" style={PROMPT}>$</Text>
         <If
           when={editing()}
           else={

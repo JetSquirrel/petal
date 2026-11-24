@@ -140,3 +140,20 @@ export function Row(props: {
     </BaseButton>
   );
 }
+
+/** A choice among several that wrap: a filter's options (any, or one label). */
+export function Chip(props: { label: string; selected: boolean; onPress: () => void; dot?: string; testID?: string; accessibilityLabel?: string }) {
+  return (
+    <BaseButton
+      role="radio"
+      selected={props.selected}
+      onPress={props.onPress}
+      testID={props.testID}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      class="h-6 flex-row items-center gap-1.5 rounded-full border border-border px-2 hover:bg-accent selected:border-primary selected:bg-primary/10 focus-visible:ring-2 ring-ring"
+    >
+      <If when={props.dot}>{(c) => <View class="size-2 rounded-full" style={{ backgroundColor: c() }} />}</If>
+      <Text class={`text-xs ${props.selected ? "font-medium text-foreground" : "text-muted-foreground"}`}>{props.label}</Text>
+    </BaseButton>
+  );
+}

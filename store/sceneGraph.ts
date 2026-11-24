@@ -11,6 +11,8 @@ export function sceneGraphData(
   rels: Map<string, DbRel>,
   perspective: PerspectiveStore,
   scheme: "light" | "dark",
+  /** Where nodes start: an opened saved scene's layout. */
+  places?: Record<string, [number, number] | [number, number, 1]> | null,
 ): GraphData<DbNode, DbRel> {
   const hiddenTypes = new Set(perspective.state().hiddenTypes);
   const shown = new Set<string>();
@@ -20,7 +22,9 @@ export function sceneGraphData(
     const style = perspective.style(category);
     if (style.hidden) continue;
     shown.add(n.id);
+    const place = places?.[n.id];
     outNodes.push({
+      ...(place ? { x: place[0], y: place[1] } : {}),
       id: n.id,
       caption: nodeCaption(n, style.caption),
       category,

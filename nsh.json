@@ -11,6 +11,18 @@
     "defaultSize": { "width": 1320, "height": 840 },
     "minSize": { "width": 720, "height": 520 }
   },
+  "capabilities": {
+    "network": { "hosts": ["*"] },
+    "clipboard": true,
+    "statusBar": true,
+    "application": true,
+    "picker": true,
+    "homeDir": true,
+    "fs": {
+      "read": ["${dataDir}", "${homeDir}/Downloads"],
+      "write": ["${dataDir}", "${homeDir}/Downloads"]
+    }
+  },
   "dependencies": {
     "nsh-graph": "^0.1.1"
   }

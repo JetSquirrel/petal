@@ -51,7 +51,7 @@ export function toolDefinitions(): ToolDefinition[] {
       name: "run_query",
       title: "Run a query",
       description:
-        "Runs a query in the database's own language (Cypher on Neo4j, Memgraph and HawDB, openCypher on Amazon Neptune, nGQL on NebulaGraph, Gremlin on Gremlin servers; get_schema says which) and returns its columns and rows, plus the nodes and relationships in them. At most 200 rows come back, so use LIMIT. Queries that write are refused unless the person allowed writes in Petal.",
+        "Runs a query in the database's own language (Cypher on Neo4j, Memgraph and HawDB, openCypher on PuppyGraph and Amazon Neptune, nGQL on NebulaGraph, Gremlin on Gremlin servers; get_schema says which) and returns its columns and rows, plus the nodes and relationships in them. At most 200 rows come back, so use LIMIT. Queries that write are refused unless the person allowed writes in Petal.",
       inputSchema: {
         type: "object",
         properties: {
@@ -81,13 +81,16 @@ export function toolDefinitions(): ToolDefinition[] {
     {
       name: "expand",
       title: "Expand nodes",
-      description: "Returns the neighbors of nodes, by their ids (as other tools return them), optionally of one relationship type and direction.",
+      description:
+        "Returns the neighbors of nodes, by their ids (as other tools return them), optionally of one relationship type and direction, with one label, or with a property containing some words.",
       inputSchema: {
         type: "object",
         properties: {
           node_ids: { type: "array", items: { type: "string" }, minItems: 1, description: "The ids of the nodes to expand." },
           relationship_type: { type: "string", description: "Only relationships of this type." },
           direction: { type: "string", enum: ["out", "in", "both"], description: "Which way relationships point from the nodes. Default both." },
+          neighbor_label: { type: "string", description: "Only neighbors with this label." },
+          neighbor_text: { type: "string", description: "Only neighbors with a property containing these words, ignoring case." },
           limit: { type: "integer", minimum: 1, maximum: 1000, description: "The most neighbors. Default: Petal's setting (100)." },
           show: SHOW,
         },
@@ -184,7 +187,7 @@ export async function callTool(host: ToolHost, name: string, args: Record<string
     case "run_query": {
       const query = str(args, "query");
       if (!query) return fail("Give the query to run.");
-      if (!source.language) return fail("This database runs no query language (it is Petal's demo graph). Use the search tool, or ask the person to connect a database.");
+      if (!source.language) return fail("This database runs no query language. Use the search tool, or ask the person to connect a database.");
       const write = !host.allowWrites() && looksLikeWrite(query, source.language);
       if (write) return fail(writeRefusal(write));
       return withScene(await source.search({ kind: "raw", statement: query }, host.limit()));
@@ -204,7 +207,9 @@ export async function callTool(host: ToolHost, name: string, args: Record<string
       if (!ids.length) return fail("Give the ids of the nodes to expand.");
       const direction = (["out", "in", "both"] as const).find((d) => d === args.direction) as Direction | undefined;
       const type = str(args, "relationship_type") || undefined;
-      return withScene(await source.expand(ids, { type, direction, limit: count(args, "limit", host.limit()) }));
+      const label = str(args, "neighbor_label") || undefined;
+      const text = str(args, "neighbor_text").trim() || undefined;
+      return withScene(await source.expand(ids, { type, direction, label, text, limit: count(args, "limit", host.limit()) }));
     }
     case "get_scene": {
       const s = host.scene();

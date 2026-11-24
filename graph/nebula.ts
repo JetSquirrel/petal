@@ -115,7 +115,9 @@ export function ngqlSearch(spec: SearchSpec, limit: number, schema: Schema): str
 }
 
 export function ngqlExpand(ids: string[], options: ExpandOptions, vid: VidType): string {
-  return `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}(m) WHERE id(n) IN ${vidList(ids, vid)} RETURN n, r, m LIMIT ${int(options.limit)}`;
+  const m = `(m${options.label ? ":" + ngqlName(options.label) : ""})`;
+  const text = options.text ? ` AND ${textFilter("m", options.text)}` : "";
+  return `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}${m} WHERE id(n) IN ${vidList(ids, vid)}${text} RETURN n, r, m LIMIT ${int(options.limit)}`;
 }
 
 export function ngqlAmong(ids: string[], vid: VidType): string {

@@ -7,11 +7,13 @@ import type { MemgraphConnection } from "../graph/memgraph";
 import type { NebulaConnection } from "../graph/nebula";
 import type { Neo4jConnection } from "../graph/neo4j";
 import type { NeptuneConnection } from "../graph/neptune";
+import type { PuppyGraphConnection } from "../graph/puppygraph";
 
 /** A database to open, by driver, with what it needs to sign in. */
 export type ConnectionForm =
   | ({ kind: "neo4j" } & Neo4jConnection)
   | ({ kind: "memgraph" } & MemgraphConnection)
+  | ({ kind: "puppygraph" } & PuppyGraphConnection)
   | ({ kind: "neptune" } & NeptuneConnection)
   | ({ kind: "nebula" } & NebulaConnection)
   | ({ kind: "gremlin" } & GremlinConnection)
@@ -38,6 +40,8 @@ export function defaultSettings(kind: DriverKind, hawDbPath = ""): ConnectionSet
       return { kind, url: "http://localhost:7474", user: "neo4j", database: "neo4j" };
     case "memgraph":
       return { kind, url: "bolt://localhost:7687", user: "", database: "" };
+    case "puppygraph":
+      return { kind, url: "bolt://localhost:7687", user: "puppygraph" };
     case "neptune":
       return { kind, url: "", region: "", accessKeyId: "" };
     case "nebula":
@@ -56,6 +60,8 @@ export function tidy(s: ConnectionSettings): ConnectionSettings {
       return { kind: s.kind, url: s.url.trim(), user: s.user, database: s.database.trim() || "neo4j" };
     case "memgraph":
       return { kind: s.kind, url: s.url.trim(), user: s.user, database: s.database.trim() };
+    case "puppygraph":
+      return { kind: s.kind, url: s.url.trim(), user: s.user };
     case "neptune":
       return { kind: s.kind, url: s.url.trim(), region: s.region.trim(), accessKeyId: s.accessKeyId.trim() };
     case "nebula":
@@ -79,6 +85,7 @@ export function addressOf(s: ConnectionSettings): string {
     case "memgraph":
       return s.database ? `${host(s.url)}/${s.database}` : host(s.url);
     case "gremlin":
+    case "puppygraph":
       return host(s.url);
     case "neptune": {
       // `my-db.cluster-xxxx.us-east-1.neptune.amazonaws.com:8182` → `my-db (us-east-1)`

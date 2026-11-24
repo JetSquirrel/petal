@@ -7,7 +7,7 @@ import { nodeCaption, valueKind, valueText, type DbNode, type DbRel, type Value 
 import { useStore } from "../store/app";
 import { fitSelection } from "../store/graphSelection";
 import { paletteColor } from "../store/perspective";
-import { Badge, Button, Icon, IconButton, Row, SectionTitle, Separator, Spinner, Swatch } from "../ui";
+import { Badge, Button, Chip, Field, Icon, IconButton, Row, SectionTitle, Separator, Spinner, Swatch, TextField } from "../ui";
 
 export function Inspector() {
   const store = useStore();
@@ -64,6 +64,8 @@ function SelectionDetails() {
           />
           <IconButton size="sm" variant="secondary" icon="trash" label="Dismiss all" onPress={() => store.dismiss(ids())} testID="dismiss" />
         </View>
+
+        <ExpandFilters ids={ids()} labels={[...new Set(nodes().flatMap((n) => n.labels))]} hood={[]} />
 
         <Separator />
 
@@ -170,10 +172,104 @@ function NodeDetails(props: { node: DbNode }) {
           </Each>
         </View>
 
+        <ExpandFilters ids={[props.node.id]} labels={props.node.labels} hood={hood() ?? []} />
+
         <Separator />
         <Properties properties={props.node.properties} id={props.node.id} />
       </View>
     </Scroll>
+  );
+}
+
+/** The most labels the neighbor filter offers as choices. */
+const LABEL_CHOICES = 16;
+
+/**
+ * Expand with filters, as Graph Explorer's expand panel: one relationship type and direction, neighbors of one
+ * label, neighbors with a property containing some words, and how many at most. Folded until opened.
+ */
+function ExpandFilters(props: { ids: string[]; labels: string[]; hood: { type: string; direction: "out" | "in"; count: number }[] }) {
+  const store = useStore();
+  const open = signal(false);
+  /** `type|direction`, or "" for any. */
+  const rel = signal("");
+  const label = signal("");
+  const text = signal("");
+  const limit = signal(String(store.settings().limit));
+
+  const parsedLimit = () => {
+    const n = Number(limit().trim());
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+  /** Labels a neighbor across the chosen relationship can have, as the schema says; every label when it can't tell. */
+  const labelChoices = () => {
+    const s = store.schema();
+    const [type, direction] = rel() ? rel().split("|") : [undefined, undefined];
+    const mine = new Set(props.labels);
+    const out = new Set<string>();
+    for (const p of s.patterns) {
+      if (type && p.type !== type) continue;
+      if (direction !== "in" && mine.has(p.from)) out.add(p.to);
+      if (direction !== "out" && mine.has(p.to)) out.add(p.from);
+    }
+    const list = out.size ? [...out] : s.labels.map((l) => l.name);
+    return list.slice(0, LABEL_CHOICES);
+  };
+  const run = () => {
+    const n = parsedLimit();
+    if (n === null) return;
+    const [type, direction] = rel() ? (rel().split("|") as [string, "out" | "in"]) : [undefined, undefined];
+    store.expand(props.ids, { type, direction, label: label() || undefined, text: text(), limit: n });
+  };
+  const color = (l: string) => paletteColor(store.perspective.style(l).color, colorScheme());
+
+  return (
+    <View class="gap-2">
+      <Row onPress={() => open.update((o) => !o)} accessibilityLabel="Expand with filters" testID="expand-filters-toggle" class="-mx-2">
+        <Icon name={open() ? "chevronDown" : "chevronRight"} size={14} tone="muted-foreground" />
+        <Text class="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expand with filters</Text>
+        <Icon name="sliders" size={14} tone="muted-foreground" />
+      </Row>
+      <If when={open()}>
+        <View class="gap-3" testID="expand-filters">
+          <If when={props.hood.length > 0}>
+            <View class="gap-1.5">
+              <Text class="text-xs font-medium text-sidebar-foreground">Relationship</Text>
+              <View role="radiogroup" accessibilityLabel="Relationship" class="flex-row flex-wrap gap-1">
+                <Chip label="Any" selected={rel() === ""} onPress={() => rel.set("")} testID="filter-rel-any" />
+                <Each of={props.hood} key={(e) => `${e.type}|${e.direction}`}>
+                  {(e) => (
+                    <Chip
+                      label={`${e().direction === "out" ? "→" : "←"} ${e().type}`}
+                      accessibilityLabel={`${e().direction === "out" ? "Outgoing" : "Incoming"} ${e().type}`}
+                      selected={rel() === `${e().type}|${e().direction}`}
+                      onPress={() => rel.set(`${e().type}|${e().direction}`)}
+                      testID={`filter-rel-${e().type}-${e().direction}`}
+                    />
+                  )}
+                </Each>
+              </View>
+            </View>
+          </If>
+          <View class="gap-1.5">
+            <Text class="text-xs font-medium text-sidebar-foreground">Neighbor label</Text>
+            <View role="radiogroup" accessibilityLabel="Neighbor label" class="flex-row flex-wrap gap-1">
+              <Chip label="Any" selected={label() === ""} onPress={() => label.set("")} testID="filter-label-any" />
+              <Each of={labelChoices()}>
+                {(l) => <Chip label={l()} dot={color(l())} selected={label() === l()} onPress={() => label.set(l())} testID={`filter-label-${l()}`} />}
+              </Each>
+            </View>
+          </View>
+          <Field label="Property contains">
+            <TextField size="sm" value={text()} onChange={(v) => text.set(v)} onSubmit={run} placeholder="Any words" testID="filter-text" />
+          </Field>
+          <Field label="At most" error={parsedLimit() === null ? "Enter a whole number above 0." : null}>
+            <TextField size="sm" value={limit()} onChange={(v) => limit.set(v)} onSubmit={run} invalid={parsedLimit() === null} verbatim testID="filter-limit" />
+          </Field>
+          <Button size="sm" variant="primary" icon="expand" label="Expand" class="self-start" disabled={parsedLimit() === null} onPress={run} testID="filter-expand" />
+        </View>
+      </If>
+    </View>
   );
 }
 

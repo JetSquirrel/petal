@@ -274,8 +274,14 @@ export function gremlinSearch(spec: SearchSpec, limit: number, schema: Schema): 
 
 const idList = (ids: string[], literals: Map<string, string>) => ids.map((id) => literals.get(id) ?? gremlinString(id)).join(", ");
 
+/**
+ * The neighbors of `ids`. A label is a `hasLabel` step; words a neighbor must contain are checked by Petal
+ * (`GremlinSource.expand`), so with them the script reads up to `TEXT_SCAN` rows.
+ */
 export function gremlinExpand(ids: string[], options: ExpandOptions, literals: Map<string, string>): string {
-  return `g.V(${idList(ids, literals)}).as('n')${step(options.direction ?? "both", options.type, "r")}.as('m').limit(${int(options.limit)}).select('n', 'r', 'm').by(elementMap())`;
+  const has = options.label ? `.hasLabel(${gremlinString(options.label)})` : "";
+  const cap = options.text ? TEXT_SCAN : int(options.limit);
+  return `g.V(${idList(ids, literals)}).as('n')${step(options.direction ?? "both", options.type, "r")}${has}.as('m').limit(${cap}).select('n', 'r', 'm').by(elementMap())`;
 }
 
 export function gremlinAmong(ids: string[], literals: Map<string, string>): string {
@@ -626,7 +632,22 @@ export class GremlinSource implements GraphSource {
 
   async expand(ids: string[], options: ExpandOptions): Promise<GraphResult> {
     const { data, graph } = await this.run(gremlinExpand(ids, options, this.literals));
-    return { nodes: [...graph.nodes.values()], rels: [...graph.rels.values()], rows: data.length };
+    if (!options.text) return { nodes: [...graph.nodes.values()], rels: [...graph.rels.values()], rows: data.length };
+    // Keep the rows whose neighbor contains the words.
+    const kept = newCollected();
+    let rows = 0;
+    for (const row of data) {
+      const probe = newCollected();
+      collectGraph(row instanceof Map ? row.get("m") ?? null : null, probe);
+      const m = [...probe.nodes.values()][0];
+      if (!m || !containsText(m, options.text)) continue;
+      const one = newCollected();
+      collectGraph(row, one);
+      for (const [id, n] of one.nodes) kept.nodes.set(id, graph.nodes.get(id) ?? n);
+      for (const [id, r] of one.rels) kept.rels.set(id, r);
+      if (++rows >= options.limit) break;
+    }
+    return { nodes: [...kept.nodes.values()], rels: [...kept.rels.values()], rows };
   }
 
   async relationshipsAmong(ids: string[]): Promise<DbRel[]> {

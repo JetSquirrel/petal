@@ -9,6 +9,8 @@ import type { DbNode, DbRel } from "../graph/model";
 import { useStore } from "../store/app";
 import { canSelectAll, fitSelection, selectAll, selectedIds } from "../store/graphSelection";
 import { sceneGraphData } from "../store/sceneGraph";
+import { SceneTable } from "./SceneTable";
+import { ScenesMenu } from "./ScenesMenu";
 import { Button, Icon, IconButton, PetalMark, Segmented, Separator, Spinner, Surface } from "../ui";
 
 const LAYOUTS: { value: LayoutKind; label: string }[] = [
@@ -20,7 +22,7 @@ const LAYOUTS: { value: LayoutKind; label: string }[] = [
 
 export function Scene() {
   const store = useStore();
-  const data = computed(() => sceneGraphData(store.scene.nodes(), store.scene.rels(), store.perspective, colorScheme()));
+  const data = computed(() => sceneGraphData(store.scene.nodes(), store.scene.rels(), store.perspective, colorScheme(), store.places()));
   const empty = () => store.scene.nodes().size === 0;
 
   const onContextMenu = (target: HitTarget<DbNode, DbRel>, e: { pagePosition: { x: number; y: number } }) => {
@@ -29,39 +31,44 @@ export function Scene() {
   };
 
   return (
-    <View class="relative flex-1 bg-background">
-      <GraphView<DbNode, DbRel>
-        data={data()}
-        controller={store.graph}
-        layout={store.settings().layout}
-        labelMode={store.settings().labelMode}
-        edgeLabels={store.settings().edgeLabels}
-        onNodeActivate={(node) => store.expand([node.id])}
-        onContextMenu={onContextMenu}
-        accessibilityLabel="Scene"
-        testID="scene"
-        style={{ flex: 1 }}
-      />
-
-      <If when={empty()}>
-        <EmptyScene />
+    <View class="flex-1">
+      <View class="relative flex-1 bg-background">
+        <GraphView<DbNode, DbRel>
+          data={data()}
+          controller={store.graph}
+          layout={store.settings().layout}
+          labelMode={store.settings().labelMode}
+          edgeLabels={store.settings().edgeLabels}
+          onNodeActivate={(node) => store.expand([node.id])}
+          onContextMenu={onContextMenu}
+          accessibilityLabel="Scene"
+          testID="scene"
+          style={{ flex: 1 }}
+        />
+  
+        <If when={empty()}>
+          <EmptyScene />
+        </If>
+  
+        <View class="absolute left-0 right-0 top-3 items-center" style={{ pointerEvents: "box-none" }}>
+          <Notice />
+        </View>
+  
+        <View class="absolute bottom-4 left-0 right-0 items-center" style={{ pointerEvents: "box-none" }}>
+          <SceneToolbar />
+        </View>
+  
+        <View class="absolute left-4 top-3 pointer-events-none">
+          <Text class="text-xs text-muted-foreground tabular-nums" testID="scene-stats">
+            {`${data().nodes.length} ${data().nodes.length === 1 ? "node" : "nodes"}, ${data().edges.length} ${
+              data().edges.length === 1 ? "relationship" : "relationships"
+            }`}
+          </Text>
+        </View>
+      </View>
+      <If when={store.settings().table}>
+        <SceneTable />
       </If>
-
-      <View class="absolute left-0 right-0 top-3 items-center" style={{ pointerEvents: "box-none" }}>
-        <Notice />
-      </View>
-
-      <View class="absolute bottom-4 left-0 right-0 items-center" style={{ pointerEvents: "box-none" }}>
-        <SceneToolbar />
-      </View>
-
-      <View class="absolute left-4 top-3 pointer-events-none">
-        <Text class="text-xs text-muted-foreground tabular-nums" testID="scene-stats">
-          {`${data().nodes.length} ${data().nodes.length === 1 ? "node" : "nodes"}, ${data().edges.length} ${
-            data().edges.length === 1 ? "relationship" : "relationships"
-          }`}
-        </Text>
-      </View>
     </View>
   );
 }
@@ -87,6 +94,14 @@ function SceneToolbar() {
         onPress={() => store.updateSettings({ edgeLabels: !s().edgeLabels })}
         testID="edge-labels"
       />
+      <IconButton
+        icon="table"
+        label={s().table ? "Hide the table" : "Show the table"}
+        selected={s().table}
+        onPress={() => store.updateSettings({ table: !s().table })}
+        testID="table-toggle"
+      />
+      <ScenesMenu />
       <Separator vertical class="mx-1 my-1.5" />
       <IconButton icon="undo" label="Undo" shortcut={shortcutText("Z")} disabled={!store.scene.canUndo()} onPress={() => store.undo()} testID="undo" />
       <IconButton icon="trash" label="Clear the scene" disabled={store.scene.nodes().size === 0} onPress={() => store.clearScene()} testID="clear" />

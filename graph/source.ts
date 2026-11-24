@@ -47,6 +47,10 @@ export type Direction = "out" | "in" | "both";
 export interface ExpandOptions {
   type?: string;
   direction?: Direction;
+  /** Only neighbors with this label (NebulaGraph's tag). */
+  label?: string;
+  /** Only neighbors with a property containing these words, ignoring case. */
+  text?: string;
   limit: number;
 }
 
@@ -57,7 +61,7 @@ export interface NeighborhoodEntry {
   count: number;
 }
 
-export type SourceKind = "neo4j" | "memgraph" | "neptune" | "nebula" | "gremlin" | "hawdb" | "demo";
+export type SourceKind = "neo4j" | "memgraph" | "puppygraph" | "neptune" | "nebula" | "gremlin" | "hawdb" | "demo";
 
 /** The query language a source runs as written (`{ kind: "raw" }`); null when it runs none. */
 export type QueryLanguage = "Cypher" | "nGQL" | "Gremlin" | null;

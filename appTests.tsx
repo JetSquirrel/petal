@@ -79,12 +79,103 @@ export function appTests(platform: "windows" | "macos") {
     expect(stats(app.texts())).toBe("1 node, 0 relationships");
   });
 
-  test("queries need a database", async () => {
+  test("expand with filters brings in neighbors of one label, with words, up to a limit", async () => {
     const app = await open("./App.tsx", DESKTOP);
     await app.waitFor("id:example-Person");
-    await app.type("id:search", "MATCH (n) RETURN n");
+    await app.type("id:search", "Lattice");
     await app.submit("id:search");
-    await app.waitFor("text:Queries need a database. Connect to Neo4j, NebulaGraph or HawDB to run one.");
+    await app.waitFor("text:Added 1 node.");
+    await app.wait(400);
+    await app.drag("id:scene", {});
+    await app.waitFor("id:inspector");
+    expect(app.shows("id:expand-filters")).toBe(false);
+    await app.press("id:expand-filters-toggle");
+    await app.waitFor("id:expand-filters");
+
+    // Lattice's maintainers are people: only the one whose properties hold "rasmus".
+    await app.press("id:filter-label-Person");
+    await app.type("id:filter-text", "rasmus");
+    await app.press("id:filter-expand");
+    await app.waitFor("text:Added 1 node and 1 relationship.");
+    expect(stats(app.texts())).toBe("2 nodes, 1 relationship");
+
+    await app.type("id:filter-text", " nobody");
+    await app.press("id:filter-expand");
+    await app.waitFor("text:No neighbors match the filters.");
+
+    // One project that depends on it, of the four.
+    await app.clear("id:filter-text");
+    await app.press("id:filter-label-Project");
+    await app.clear("id:filter-limit");
+    await app.type("id:filter-limit", "1");
+    await app.press("id:filter-expand");
+    await app.waitUntil(() => stats(app.texts()).startsWith("3 nodes"), { timeout: 8000 });
+
+    await app.clear("id:filter-limit");
+    await app.type("id:filter-limit", "0");
+    await app.waitFor("text:Enter a whole number above 0.");
+    expect(app.enabled("id:filter-expand")).toBe(false);
+  }, 60_000);
+
+  test("the table lists the scene's nodes and relationships, filters them, and closes", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.press("id:example-Person");
+    await app.waitUntil(() => stats(app.texts()).startsWith("30 nodes"), { timeout: 8000 });
+    expect(app.shows("id:scene-table")).toBe(false);
+    await app.press("id:table-toggle");
+    await app.waitFor("id:scene-table");
+    expect(app.texts()).toContain("Nodes 30");
+    await app.type("id:table-filter", "Inês");
+    await app.waitUntil(() => app.texts().includes("1 of 30"));
+    await app.clear("id:table-filter");
+    await app.press("id:table-kind-rels");
+    await app.waitFor("id:table-rels");
+    await app.press("id:table-close");
+    expect(app.shows("id:scene-table")).toBe(false);
+  });
+
+  test("a scene saved under a name opens again, undo goes back, and it can be deleted", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.press("id:example-Person");
+    await app.waitUntil(() => stats(app.texts()).startsWith("30 nodes"), { timeout: 8000 });
+    const full = stats(app.texts());
+
+    await app.press("id:scenes-open");
+    await app.waitFor("id:scene-name");
+    await app.type("id:scene-name", "People");
+    await app.press("id:scene-save");
+    await app.waitFor("text:Saved the scene as “People”.");
+
+    await app.press("id:clear");
+    await app.waitFor("id:empty");
+    await app.press("id:scenes-open");
+    await app.waitFor("id:scene-People");
+    await app.press("id:scene-People");
+    await app.waitFor("text:Opened “People”.");
+    expect(stats(app.texts())).toBe(full);
+
+    await app.press("id:undo");
+    await app.waitFor("id:empty");
+
+    await app.press("id:scenes-open");
+    await app.waitFor("id:scene-delete-People");
+    await app.press("id:scene-delete-People");
+    await app.waitFor("text:Deleted the saved scene “People”.");
+    expect(app.shows("id:scene-People")).toBe(false);
+  });
+
+  test("the demo graph runs Cypher, and refuses writes", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.type("id:search", "MATCH (c:Company)<-[r:WORKS_AT]-(p:Person) WHERE p.name = 'Inês Carvalho' RETURN c, r, p");
+    await app.submit("id:search");
+    await app.waitFor("text:Added 2 nodes and 1 relationship.", { timeout: 15000 });
+    await app.clear("id:search");
+    await app.type("id:search", "MATCH (n:Person) SET n.x = 1 RETURN n");
+    await app.submit("id:search");
+    await app.waitFor("text:The demo graph is read-only, so SET can't run. Open a HawDB database to change a graph.");
   });
 
   // --- Notebook mode --------------------------------------------------------------------------------------
@@ -141,21 +232,23 @@ export function appTests(platform: "windows" | "macos") {
 
     await app.press("id:frame-1-fold");
     expect(app.shows("id:frame-1-summary")).toBe(false);
-    expect(app.shows("label:Edit: City")).toBe(true);
+    // A folded frame keeps its query and its edit button.
+    expect(app.shows("id:frame-1-query")).toBe(true);
+    expect(app.shows("id:frame-1-edit-start")).toBe(true);
     await app.press("id:frame-0-close");
     await app.waitUntil(() => !app.shows("id:frame-1"));
-    expect(app.shows("label:Edit: City")).toBe(false);
-    expect(app.shows("label:Edit: Language")).toBe(true);
+    expect(app.shows("id:frame-0-query")).toBe(true);
+    expect(app.shows("id:frame-0-edit-start")).toBe(true);
     expect(JSON.parse(app.storage()["notebook:demo"])).toEqual([{ text: "Language", by: "you" }]);
   });
 
   test("a frame that fails says why", async () => {
     const app = await open("./App.tsx", { ...DESKTOP, storage: { settings: JSON.stringify({ mode: "notebook" }) } });
     await app.waitFor("id:notebook-empty");
-    await app.type("id:notebook-input", "MATCH (n) RETURN n");
+    await app.type("id:notebook-input", "MATCH (n) DELETE n");
     await app.press("id:notebook-run");
     await app.waitFor("id:frame-0-error");
-    expect(app.texts()).toContain("Queries need a database. Connect to Neo4j, NebulaGraph or HawDB to run one.");
+    expect(app.texts()).toContain("The demo graph is read-only, so DELETE can't run. Open a HawDB database to change a graph.");
   });
 
   // --- MCP -------------------------------------------------------------------------------------------------
@@ -631,5 +724,18 @@ export function appTests(platform: "windows" | "macos") {
     await app.press("id:connect-submit");
     await app.waitFor("id:connect-error", { timeout: 30000 });
     expect(app.texts().some((t) => t.startsWith("Couldn't reach 127.0.0.1:1."))).toBe(true);
+  });
+
+  test("a PuppyGraph that isn't there is reported in the dialog", async () => {
+    const app = await open("./App.tsx", DESKTOP);
+    await app.waitFor("id:example-Person");
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-puppygraph");
+    await app.clear("id:connect-puppy-url");
+    await app.type("id:connect-puppy-url", "bolt://127.0.0.1:1");
+    await app.press("id:connect-submit");
+    await app.waitFor("id:connect-error", { timeout: 30000 });
+    expect(app.texts().some((t) => t.startsWith("Couldn't reach 127.0.0.1:1. Check the address and that PuppyGraph is running."))).toBe(true);
   });
 }

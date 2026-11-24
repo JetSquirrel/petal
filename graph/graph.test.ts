@@ -1,6 +1,6 @@
 import { expect, test } from "nsh/test";
 import { expandStatement, orient, searchStatement } from "./cypher";
-import { DemoSource } from "./demo";
+import { cypherWrite, DemoSource } from "./demo";
 import { nodeCaption, valueText } from "./model";
 import { collectTyped, decodeTyped, httpBase } from "./neo4j";
 import { parsePhrase, phraseOf, suggest, tokenize } from "./phrase";
@@ -98,6 +98,25 @@ test("decodes typed JSON, nodes inside paths and lists included", () => {
   expect(nodeCaption(nodes.get("4:x:1"))).toBe("Bob");
 });
 
+test("the demo database runs Cypher with its own nodes and relationships, and only reads", async () => {
+  const db = new DemoSource();
+  expect(db.language).toBe("Cypher");
+  const res = await db.search({ kind: "raw", statement: "MATCH (p:Person)-[r:WORKS_AT]->(c:Company) WHERE p.name = 'Inês Carvalho' RETURN p, r, c" }, 100);
+  expect(res.nodes.map((n) => n.id).sort()).toEqual(["company:brightloom", "person:ines-carvalho"]);
+  expect(res.rels.length).toBe(1);
+  expect(res.rels[0].start).toBe("person:ines-carvalho");
+  expect(res.table?.columns).toEqual(["p", "r", "c"]);
+  // A relationship alone still comes with its ends' own ids.
+  const only = await db.search({ kind: "raw", statement: "MATCH ()-[r:ACQUIRED]->() RETURN r" }, 100);
+  expect(only.rels.length).toBe(2);
+  expect(only.rels.every((r) => r.start.startsWith("company:"))).toBe(true);
+
+  expect(cypherWrite("MATCH (n) RETURN n.created, 'SET'")).toBe(null);
+  expect(cypherWrite("MATCH (n) // DELETE n\nRETURN n")).toBe(null);
+  expect(cypherWrite("MATCH (n) DETACH DELETE n")).toBe("DETACH DELETE");
+  await expect(db.search({ kind: "raw", statement: "MERGE (n:Person {name: 'X'})" }, 10)).rejects.toThrow(/read-only, so MERGE/);
+});
+
 test("the demo database answers patterns, text and expansions", async () => {
   const db = new DemoSource();
   const s = await db.schema();
@@ -190,6 +209,8 @@ test("reads the gateway's session cookie and graphd's address", () => {
 // --- HawDB ----------------------------------------------------------------------------------------------
 
 import { decodeHawDb, filterRows, hawCreateRels, hawExpand, hawName, hawSearch } from "./hawdb";
+import type { NativeResult } from "./encoded";
+import { PUPPY_TEXT_SCAN, puppyAmong, puppyExpand, puppyNeighborhood, puppySearch, schemaPatterns } from "./puppygraph";
 
 test("builds HawDB's Cypher subset: columns for paths, plain names, text filtered by Petal", () => {
   const st = hawSearch(parsePhrase("Company WORKS_AT Person Inês", schema)!, 50, schema);
@@ -354,4 +375,102 @@ test("reads Neptune's openCypher results: nodes, relationships and paths anywher
   expect(res.rels).toEqual([{ id: "e1", type: "WORKS_AT", start: "1", end: "2", properties: { since: { type: "Float", value: 1.5 } } }]);
   expect(fromNeptune({ results: [{ n: ada }] }).rows[0][0]).toEqual({ type: "Text", kind: "Node", value: "(:Person)" });
   expect(fromNeptune({ results: [] })).toEqual({ fields: [], rows: [], nodes: [], rels: [] });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Expanding with filters: a neighbor's label and words one of its properties contains
+
+test("expand filters by the neighbor's label and words, in every dialect", () => {
+  const st = expandStatement(["a"], { type: "KNOWS", direction: "out", label: "Person", text: "Inês", limit: 5 });
+  expect(st.statement).toBe(
+    "MATCH (n)-[r:`KNOWS`]->(m:`Person`) WHERE elementId(n) IN $ids AND any(k IN keys(m) WHERE toLower(toStringOrNull(m[k])) CONTAINS $text) RETURN n, r, m LIMIT 5",
+  );
+  expect(st.parameters).toEqual({ ids: ["a"], text: "inês" });
+  expect(expandStatement(["a"], { label: "Company", limit: 3 }, "neptune").statement).toBe(
+    "MATCH (n)-[r]-(m:`Company`) WHERE id(n) IN $ids RETURN n, r, m LIMIT 3",
+  );
+  expect(expandStatement(["a"], { text: "x", limit: 3 }, "memgraph").statement).toContain("any(x IN values(m) WHERE toLower(toStringOrNull(x)) CONTAINS $text)");
+  // Without filters the statements stay as they were.
+  expect(expandStatement(["a"], { limit: 3 }).parameters).toEqual({ ids: ["a"] });
+
+  expect(ngqlExpand(["p1"], { label: "team", text: 'Wa"rriors', limit: 9 }, "string")).toBe(
+    'MATCH (n)-[r]-(m:`team`) WHERE id(n) IN ["p1"] AND any(k IN keys(m) WHERE toLower(toString(properties(m)[k])) CONTAINS "wa\\"rriors") RETURN n, r, m LIMIT 9',
+  );
+
+  const literals = new Map([["4", "4L"]]);
+  expect(gremlinExpand(["4"], { direction: "out", label: "Company", limit: 9 }, literals)).toBe(
+    "g.V(4L).as('n').outE().as('r').inV().hasLabel('Company').as('m').limit(9).select('n', 'r', 'm').by(elementMap())",
+  );
+  // Words are checked by Petal, so the traversal reads candidates.
+  expect(gremlinExpand(["4"], { text: "acme", limit: 9 }, literals)).toContain(".limit(5000)");
+
+  expect(hawExpand(["3"], { label: "Company", limit: 5 }).statement).toBe("MATCH (n)-[r]-(m:Company) WHERE id(n) IN $ids RETURN n, r, m LIMIT 5");
+  const haw = hawExpand(["3"], { type: "WORKS_AT", direction: "out", text: "Acme", limit: 5 });
+  expect(haw.statement).toBe("MATCH (n0)-[r0:WORKS_AT]->(n1) WHERE id(n0) IN $ids RETURN n0, r0, n1 LIMIT 20000");
+  expect(haw.text).toEqual([undefined, "Acme"]);
+  expect(() => hawExpand(["3"], { label: "We ird", limit: 5 })).toThrow();
+});
+
+test("the demo database expands by the neighbor's label and words", async () => {
+  const db = new DemoSource();
+  const [sparrow] = (await db.search({ kind: "text", term: "Sparrow DB" }, 1)).nodes;
+  const others = (r: { nodes: { id: string; labels: string[]; properties: Record<string, unknown> }[] }) => r.nodes.filter((n) => n.id !== sparrow.id);
+
+  const all = others(await db.expand([sparrow.id], { limit: 100 }));
+  const people = others(await db.expand([sparrow.id], { label: "Person", limit: 100 }));
+  expect(people.length > 0).toBe(true);
+  expect(people.length < all.length).toBe(true);
+  expect(people.every((n) => n.labels.includes("Person"))).toBe(true);
+
+  const kaisa = others(await db.expand([sparrow.id], { text: "kaisa", limit: 100 }));
+  expect(kaisa.map((n) => nodeCaption(n as never))).toEqual(["Kaisa Tamm"]);
+  expect((await db.expand([sparrow.id], { label: "Person", text: "no such words", limit: 100 })).rows).toBe(0);
+  expect(others(await db.expand([sparrow.id], { label: "Person", limit: 1 })).length).toBe(1);
+});
+
+test("PuppyGraph's statements keep to its openCypher: elementId(), no startNode(), text checked by Petal", () => {
+  const st = puppySearch(parsePhrase("Company WORKS_AT Person Inês", schema)!, 50, schema);
+  expect(st.statement).toBe(`MATCH (n0:\`Company\`)<-[r0:\`WORKS_AT\`]-(n1:\`Person\`) RETURN n0, r0, n1 LIMIT ${PUPPY_TEXT_SCAN}`);
+  expect(st.text).toEqual([undefined, "Inês"]);
+  expect(puppySearch({ kind: "pattern", nodes: [{ label: "Person" }], rels: [] }, 7, schema)).toEqual({
+    statement: "MATCH (n0:`Person`) RETURN n0 LIMIT 7",
+    parameters: {},
+    text: undefined,
+  });
+  expect(puppySearch({ kind: "text", term: "ada" }, 7, schema).text).toEqual(["ada"]);
+
+  expect(puppyExpand(["person[v1]"], { type: "KNOWS", direction: "out", limit: 10 })).toEqual({
+    statement: "MATCH (n0)-[r0:`KNOWS`]->(n1) WHERE elementId(n0) IN $ids RETURN n0, r0, n1 LIMIT 10",
+    parameters: { ids: ["person[v1]"] },
+  });
+  const filtered = puppyExpand(["person[v1]"], { label: "Company", text: "acme", limit: 10 });
+  expect(filtered.statement).toBe(`MATCH (n0)-[r0]-(n1:\`Company\`) WHERE elementId(n0) IN $ids RETURN n0, r0, n1 LIMIT ${PUPPY_TEXT_SCAN}`);
+  expect(filtered.text).toEqual([undefined, "acme"]);
+
+  expect(puppyAmong(["a[1]", "b[2]"]).statement).toBe("MATCH (a)-[r]->(b) WHERE elementId(a) IN $ids AND elementId(b) IN $ids RETURN r");
+  const hood = puppyNeighborhood("person[v1]", "in");
+  expect(hood.statement).toBe("MATCH (n)<-[r]-() WHERE elementId(n) = $id RETURN type(r) AS type, count(*) AS count");
+  expect(hood.statement).not.toMatch(/startNode/);
+
+  // db.schema.visualization(): a node per label, relationships between them.
+  const viz: NativeResult = {
+    columns: ["nodes", "relationships"],
+    rows: [],
+    cells: [],
+    nodes: [
+      { id: "-1", labels: ["person"], properties: {} },
+      { id: "-2", labels: [], properties: { name: { type: "String", value: "software" } } },
+    ],
+    rels: [
+      { id: "-3", type: "created", start: "-1", end: "-2", properties: {} },
+      { id: "-4", type: "knows", start: "-1", end: "-1", properties: {} },
+      { id: "-5", type: "knows", start: "-1", end: "-1", properties: {} },
+    ],
+  };
+  expect(schemaPatterns(viz)).toEqual([
+    { from: "person", type: "created", to: "software" },
+    { from: "person", type: "knows", to: "person" },
+  ]);
+  expect(boltUri("puppy.example.com", "PuppyGraph")).toBe("bolt://puppy.example.com:7687");
+  expect(() => boltUri("http://puppy:8081", "PuppyGraph")).toThrow(/PuppyGraph over Bolt/);
 });

@@ -76,9 +76,16 @@ export function searchStatement(spec: SearchSpec, limit: number, schema: Schema,
 }
 
 export function expandStatement(ids: string[], options: ExpandOptions, dialect: CypherDialect = "neo4j"): Statement {
+  const parameters: Record<string, unknown> = { ids };
+  let where = `${idOf("n", dialect)} IN $ids`;
+  if (options.text) {
+    parameters.text = options.text.toLowerCase();
+    where += ` AND ${textFilter("m", "text", dialect)}`;
+  }
+  const m = `(m${options.label ? ":" + cypherName(options.label) : ""})`;
   return {
-    statement: `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}(m) WHERE ${idOf("n", dialect)} IN $ids RETURN n, r, m LIMIT ${int(options.limit)}`,
-    parameters: { ids },
+    statement: `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}${m} WHERE ${where} RETURN n, r, m LIMIT ${int(options.limit)}`,
+    parameters,
   };
 }
 
