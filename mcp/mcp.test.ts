@@ -192,7 +192,7 @@ test("the tools are described with schemas and hints", () => {
 test("get_schema and search answer from the database, and show brings results into the scene", async () => {
   const { host, shown } = await demoHost();
   const schema = JSON.parse((await callTool(host, "get_schema", {})).text);
-  expect(schema.database).toEqual({ kind: "demo", name: "Demo graph", queryLanguage: null });
+  expect(schema.database).toEqual({ kind: "demo", name: "Demo graph", queryLanguage: "Cypher" });
   expect(schema.labels.map((l: { name: string }) => l.name)).toContain("Person");
   expect(schema.patterns).toContain("(:Person)-[:WORKS_AT]->(:Company)");
 
@@ -212,12 +212,16 @@ test("expand, get_scene, and the errors an assistant reads", async () => {
   const sparrow = JSON.parse((await callTool(host, "search", { phrase: '"Sparrow DB"' })).text).nodes[0].id;
   const out = JSON.parse((await callTool(host, "expand", { node_ids: [sparrow], relationship_type: "DEPENDS_ON", direction: "out" })).text);
   expect(out.nodes.map((n: { properties: { name: string } }) => n.properties.name).sort()).toEqual(["Lattice", "Sparrow DB"]);
+  const kaisa = JSON.parse((await callTool(host, "expand", { node_ids: [sparrow], neighbor_label: "Person", neighbor_text: "kaisa" })).text);
+  expect(kaisa.nodes.map((n: { properties: { name: string } }) => n.properties.name).sort()).toEqual(["Kaisa Tamm", "Sparrow DB"]);
 
   const scene = JSON.parse((await callTool(host, "get_scene", {})).text);
   expect(scene.selected).toEqual(["n1"]);
   expect(scene.nodes).toEqual([{ id: "n1", labels: ["Person"], properties: { name: "Ada" } }]);
 
-  expect((await callTool(host, "run_query", { query: "MATCH (n) RETURN n" })).text).toMatch(/demo graph/);
+  const langs = await callTool(host, "run_query", { query: "MATCH (n:Language) RETURN n LIMIT 2" });
+  expect(langs.isError).toBeFalsy();
+  expect(langs.text).toMatch(/"Language"/);
   expect((await callTool(host, "expand", { node_ids: [] })).isError).toBe(true);
   expect((await callTool(host, "search", { phrase: "" })).isError).toBe(true);
 

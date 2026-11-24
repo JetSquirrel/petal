@@ -2,7 +2,7 @@
 
 **Explore your graph, one connection at a time.**
 
-Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **Amazon Neptune**,
+Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **PuppyGraph**, **Amazon Neptune**,
 **NebulaGraph**, Gremlin servers and **HawDB**. It is a [Native Shell (NSH)](https://nsh.dev) app written in TSX, with
 a small Rust crate that embeds HawDB, and it draws the graph with [nsh-graph](../nsh-graph). It runs as a native app
 on Windows, macOS and Linux, and on the web (without HawDB).
@@ -24,7 +24,12 @@ cargo test --lib -- --ignored --nocapture   # print which Cypher forms HawDB acc
 
 nsh-graph is an nshm from crates.io (`nsh.json` → `"dependencies"`, pinned in `nsh.lock`; `nsh upgrade nsh-graph`
 updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`), so the first run builds
-HawDB, which takes a few minutes.
+HawDB, which takes a few minutes. Package dependencies need nsh's nightly channel (`nsh update nightly`); 0.6.1, the
+latest release, ignores them.
+
+`nsh.json` grants what Petal uses: the network to any host (it connects to the databases you give it), the
+clipboard, the menu bar and status bar, the file picker, and files in its data folder (saved scenes) and in
+Downloads (exports).
 
 ## What it does
 
@@ -36,7 +41,7 @@ HawDB, which takes a few minutes.
   | `Person WORKS_AT Company` | people and the companies they work at, following the direction the schema has |
   | `Project DEPENDS_ON` | projects and what they depend on |
   | `"Sparrow DB"` | any node with a property containing the words |
-  | `MATCH (n:Person) RETURN n LIMIT 25` | the database's own query language, run as written: Cypher on Neo4j and HawDB, nGQL (`MATCH`, `GO`, `LOOKUP`, `FETCH`, …) on NebulaGraph |
+  | `MATCH (n:Person) RETURN n LIMIT 25` | the database's own query language, run as written: Cypher on Neo4j, HawDB and the demo graph (read-only, run by HawDB in memory; not on the web), nGQL (`MATCH`, `GO`, `LOOKUP`, `FETCH`, …) on NebulaGraph |
 
   Labels (NebulaGraph's tags) and types match in any case, and quotes keep words together. Up and Down move through
   the suggestions, Enter runs one, and Escape closes the list. Recent searches come back when the field is empty.
@@ -46,6 +51,23 @@ HawDB, which takes a few minutes.
   Select several nodes with Shift-, Ctrl- or ⌘-click or a Shift-drag box, or all of them from Scene → Select all
   nodes; the inspector and the context menu then expand, focus, pin or dismiss them together, and dragging one moves
   them all. Every change can be undone. Right-click opens a context menu on the desktop.
+- **Expand with filters.** Under a node's relationships in the inspector (and under a selection of several),
+  **Expand with filters** brings in only some neighbors: across one relationship type and direction, with one label
+  (the choices are the labels the schema says can be there), with a property containing some words, and how many at
+  most. Databases that can't filter by words in a query (Gremlin servers and HawDB) read up to 5,000 or 20,000
+  candidates and Petal filters them.
+- **Table.** The table button in the toolbar (Ctrl/⌘ + J) shows the scene as a table under the canvas: its nodes
+  (caption, labels, how many relationships each has in the scene, whether it's shown, ID) or its relationships (type,
+  from, to). Filter it by any words, which match its columns and the properties, and sort it by a column. Clicking a
+  row selects that node or relationship on the canvas. **CSV** and **JSON** write the rows the table shows, with
+  every property, to a file in your Downloads folder (on the web, to the clipboard). The CSV has a column per
+  property key.
+- **Saved scenes.** The bookmark button in the toolbar saves the scene under a name, with its layout and pins, and
+  lists the scenes saved for this database, to open (undo goes back) or delete. Each is a file in Petal's data
+  folder (`scenes/<database>/`), up to 8 MB; the web build keeps them in its storage, up to 1.5 MB each. **Export
+  file** writes the scene to Downloads as JSON (`petal-scene/1`), and **Open file…** opens one, so you can pass a
+  scene to someone connected to the same database; **Copy scene** and **Paste scene** do the same through the
+  clipboard. A saved scene keeps its nodes' properties as they were when it was saved.
 - **Perspective.** Every label is a category with a color from a palette that was checked for color-blind viewers
   (light and dark variants), a caption property and a size. Hiding a category or a relationship type takes it off
   the canvas but keeps it in the scene. Petal remembers the perspective for each database.
@@ -58,18 +80,18 @@ HawDB, which takes a few minutes.
   Ctrl/⌘ + Enter. Each run becomes a frame at the top, with its result as a **Graph**, a **Table** or the **Raw** rows
   as JSON, and how long it took. Click a frame's query to edit and run it again. A frame can also run again as it is,
   add its result to the scene, fold, or close. Petal remembers the frames for each database (their queries, not their
-  results), and they come back folded the next time you connect. On the demo graph, frames run search phrases.
+  results), and they come back folded the next time you connect. On the demo graph, frames run search phrases and read-only Cypher.
 - **Assistants (MCP).** Petal can run an MCP server, so Claude Code or another MCP client can read the schema, run
   queries, look at your scene, and add to it and to your notebook. See [Assistants (MCP)](#assistants-mcp).
 - **Keyboard.** Ctrl/⌘ + K to search, + B to toggle the perspective panel, + Z to undo, + 0 to fit, + O to connect,
-  + 1 and + 2 to explore or use the notebook, + Enter to run in the notebook.
+  + 1 and + 2 to explore or use the notebook, + J to toggle the table, + Enter to run in the notebook.
 
 ## Connecting
 
 The database button at the top right (Ctrl/⌘ + O) opens the connection manager. It works the way a database
 client does: saved connections are listed on the left, and you can keep as many as you like, of any database.
 
-- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, Amazon Neptune, NebulaGraph, any Gremlin
+- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, PuppyGraph, Amazon Neptune, NebulaGraph, any Gremlin
   server) and HawDB, which runs on this computer. Pick one to fill in its settings.
 - **Test** opens the database, reads its schema, reports what it found and closes it again, without leaving the
   graph you're exploring.
@@ -139,6 +161,30 @@ and relationships; past that, counts are left out. Integers past 2^53 lose preci
 JSON numbers. To use Gremlin on Neptune instead, the Gremlin driver reaches it over `https://…:8182/gremlin`, without
 IAM signing.
 
+### PuppyGraph
+
+[PuppyGraph](https://www.puppygraph.com) queries relational tables and data lakes as a graph, with no copy into a
+graph database. Petal speaks openCypher to it over Bolt, the same protocol it uses for Memgraph. Give Petal:
+
+- **Address**: `bolt://host:7687`. Petal adds `bolt://` and `:7687` if they're missing.
+- **User** and **Password**: the ones PuppyGraph was started with (`puppygraph` in PuppyGraph's examples).
+
+PuppyGraph's openCypher is a subset, and Petal's statements stay inside what its documentation lists:
+
+- **IDs.** IDs are text such as `person[v1]` (the label and the ID column), read with `elementId()`.
+- **Schema.** The schema is declared rather than inferred. Labels and types come from `db.labels()` and
+  `db.relationshipTypes()`, and which labels a type joins comes from `db.schema.visualization()`. Counts are one
+  `count(*)` per label and type; if counting fails, the schema shows without counts.
+- **Relationship counts.** `startNode()` doesn't work on matched relationships, so the inspector counts outgoing and
+  incoming relationships separately.
+- **Text search.** Text search reads up to 5,000 candidates and Petal checks their properties itself, because
+  PuppyGraph doesn't document `toLower()` or `any()`. Words past those candidates aren't found, so a label in the
+  phrase (`Person Ada`) helps.
+
+For about a minute after PuppyGraph starts, its Cypher engine isn't ready, and Petal says so. Petal hasn't been run
+against a live PuppyGraph yet. The statements follow PuppyGraph's documentation, and parameters (`$ids`) are
+assumed to work over Bolt as they do with Neo4j drivers.
+
 ### HawDB
 
 [HawDB](https://hawdb.ai) is an embedded database with no server. Petal links it as a library through its Rust crate
@@ -179,7 +225,7 @@ a URL. The tools work on whatever database Petal is connected to at the moment:
 | `get_schema` | the database's kind and query language, its labels and relationship types with counts, and which labels each type joins |
 | `run_query` | runs a query in the database's own language and returns its columns and rows (at most 200), plus the nodes and relationships in them |
 | `search` | finds nodes with a search phrase, the same phrases the search field takes |
-| `expand` | the neighbors of nodes, optionally of one relationship type and direction |
+| `expand` | the neighbors of nodes, optionally of one relationship type and direction, with one label, or with a property containing some words |
 | `get_scene` | the nodes and relationships in your scene, and the ones you selected |
 | `add_to_notebook` | runs a query or phrase in a new notebook frame, marked *Assistant*, and returns what it found |
 
@@ -209,16 +255,18 @@ nsh.json, theme.json  the app's settings and design tokens (light and dark)
 Cargo.toml, src/      the Rust crate, `petal/native` in TSX: `HawDb` (lib.rs), `BoltClient` (bolt.rs) and
                       `McpServer` (mcp.rs, the MCP server's HTTP endpoint on 127.0.0.1)
 ui/                   Petal's own styled components (Button, IconButton, TextField, Segmented, Popover, Icon, …)
-components/           the screens' parts: SearchBar, PerspectivePanel, Scene, Inspector, Notebook, ConnectDialog,
-                      McpDialog, Header
-store/                state and actions: app.ts (connections, search, expand), scene.ts (contents and undo),
-                      perspective.ts (category styles), sceneGraph.ts (what the canvas draws), notebook.ts (frames),
-                      mcp.ts (the MCP server's settings and its request loop)
+components/           the screens' parts: SearchBar, PerspectivePanel, Scene, SceneTable, ScenesMenu, Inspector,
+                      Notebook, ConnectDialog, McpDialog, Header
+store/                state and actions: app.ts (connections, search, expand, saved scenes), scene.ts (contents
+                      and undo), perspective.ts (category styles), sceneGraph.ts (what the canvas draws),
+                      sceneTable.ts (the table's rows, filter, sort, CSV and JSON), files.ts (exports, the file
+                      picker, the data folder), savedScenes.ts (saved scenes
+                      and their JSON), notebook.ts (frames), mcp.ts (the MCP server's settings and its request loop)
 mcp/                  MCP with no UI: protocol.ts (JSON-RPC over Streamable HTTP, the token and origin checks) and
                       tools.ts (the tools, and the check for queries that write)
 graph/                data access, with no UI: model.ts, source.ts (the GraphSource interface), phrase.ts (search
                       phrases and suggestions), and one module per database: neo4j.ts and cypher.ts, neptune.ts (openCypher
-                      over HTTPS and SigV4), nebula.ts
+                      over HTTPS and SigV4), memgraph.ts and puppygraph.ts (Bolt), nebula.ts
                       (gateway client and nGQL), hawdb.ts (HawDB's Cypher subset), demo.ts and demoData.ts
 ```
 
@@ -235,7 +283,7 @@ decides. A request TSX doesn't answer within two minutes gets a 504.
 
 ## Tests
 
-`graph/graph.test.ts` covers phrase parsing and suggestions; the Cypher, nGQL and HawDB statements; address mapping;
+`graph/graph.test.ts` covers phrase parsing and suggestions; the Cypher, nGQL, HawDB and PuppyGraph statements; address mapping;
 decoding of Neo4j's typed JSON, the gateway's rows and HawDB's rows; and the demo database. `App.test.tsx` drives the
 app itself. It covers searching, the suggestion list, undo, hiding categories, selecting and expanding a node, and a
 narrow window. It connects to a Neo4j server and a NebulaGraph gateway that the test plays, including wrong

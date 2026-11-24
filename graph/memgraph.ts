@@ -23,7 +23,7 @@ export interface MemgraphConnection {
 }
 
 /** A Bolt URI: `bolt://` added when there is no scheme; `neo4j://` schemes become `bolt://`, Memgraph routes nothing. */
-export function boltUri(input: string): string {
+export function boltUri(input: string, product = "Memgraph"): string {
   let url = input.trim().replace(/\/+$/, "");
   if (!url) throw new SourceError("Enter the database's address.");
   const m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/i.exec(url);
@@ -31,7 +31,7 @@ export function boltUri(input: string): string {
   const scheme = m[1].toLowerCase();
   const rest = m[2].replace(/\/.*$/, "");
   const map: Record<string, string> = { bolt: "bolt", "bolt+s": "bolt+s", "bolt+ssc": "bolt+ssc", neo4j: "bolt", "neo4j+s": "bolt+s", "neo4j+ssc": "bolt+ssc" };
-  if (!map[scheme]) throw new SourceError(`Memgraph speaks Bolt: use a bolt:// address, not ${scheme}://.`);
+  if (!map[scheme]) throw new SourceError(`Petal reaches ${product} over Bolt: use a bolt:// address, not ${scheme}://.`);
   return `${map[scheme]}://${rest.includes(":") ? rest : `${rest}:7687`}`;
 }
 
@@ -130,7 +130,7 @@ export class MemgraphSource implements GraphSource {
   }
 
   async expand(ids: string[], options: ExpandOptions): Promise<GraphResult> {
-    const res = await this.run(expandStatement(ids, options));
+    const res = await this.run(expandStatement(ids, options, "memgraph"));
     return { nodes: res.nodes, rels: res.rels, rows: res.cells.length };
   }
 

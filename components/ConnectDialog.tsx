@@ -1,7 +1,7 @@
 /**
  * The connection manager, the way a database client has one: saved connections on the left, and on the right
  * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
- * Drivers: Neo4j over its HTTP API, Memgraph over Bolt, Amazon Neptune over openCypher (signed with SigV4 when it
+ * Drivers: Neo4j over its HTTP API, Memgraph and PuppyGraph over Bolt, Amazon Neptune over openCypher (signed with SigV4 when it
  * uses IAM), NebulaGraph through its HTTP gateway, a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop),
  * and HawDB embedded in Petal. Passwords (and AWS secrets) are kept only while the app runs.
  */
@@ -64,6 +64,18 @@ const DRIVERS: Driver[] = [
         { key: "user", label: "User", description: "Empty when authentication is off", testID: "connect-bolt-user", autoComplete: "username" },
         { key: "database", label: "Database", description: "Empty for the default", testID: "connect-bolt-database" },
       ],
+    ],
+  },
+  {
+    kind: "puppygraph",
+    name: "PuppyGraph",
+    mark: "PG",
+    blurb: "PuppyGraph's openCypher over Bolt: your tables and lakes as a graph.",
+    group: "server",
+    password: true,
+    rows: [
+      [{ key: "url", label: "Address", description: "bolt://host:7687", testID: "connect-puppy-url", autoComplete: "url" }],
+      [{ key: "user", label: "User", description: "The user PuppyGraph was started with", testID: "connect-puppy-user", autoComplete: "username" }],
     ],
   },
   {

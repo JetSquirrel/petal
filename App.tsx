@@ -113,6 +113,7 @@ function installMenu(store: AppStore) {
           },
           { label: "Perspective", shortcut: "mod+b", checked: store.panelOpen(), onSelect: () => store.panelOpen.update((o) => !o) },
           { label: "Relationship types", checked: settings.edgeLabels, onSelect: () => store.updateSettings({ edgeLabels: !settings.edgeLabels }) },
+          { label: "Table", shortcut: "mod+j", checked: settings.table, onSelect: () => store.updateSettings({ table: !settings.table }) },
           { type: "separator" },
           { label: "Fit to the scene", shortcut: "mod+0", onSelect: () => store.graph.fit() },
           { label: "Zoom in", shortcut: "mod+plus", onSelect: () => store.graph.zoomIn() },

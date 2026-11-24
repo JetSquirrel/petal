@@ -74,6 +74,16 @@ export function createScene() {
     return dismiss([...nodes().keys()].filter((id) => !keep.has(id)));
   }
 
+  /** Puts `result` in place of what the scene holds, as one step to undo: an opened saved scene. */
+  function replace(result: Pick<GraphResult, "nodes" | "rels">) {
+    remember();
+    const n = new Map(result.nodes.map((node) => [node.id, node]));
+    const r = new Map<string, DbRel>();
+    for (const rel of result.rels) if (n.has(rel.start) && n.has(rel.end)) r.set(rel.id, rel);
+    nodes.set(n);
+    rels.set(r);
+  }
+
   function clear() {
     if (nodes().size === 0) return;
     remember();
@@ -100,7 +110,7 @@ export function createScene() {
 
   const canUndo = computed(() => history().length > 0);
 
-  return { nodes, rels, add, dismiss, dismissRel, keepOnly, clear, undo, reset, canUndo };
+  return { nodes, rels, add, dismiss, dismissRel, keepOnly, replace, clear, undo, reset, canUndo };
 }
 
 export type Scene = ReturnType<typeof createScene>;

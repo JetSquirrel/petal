@@ -45,6 +45,9 @@ const PATHS = {
   graph: "M6 7 A2 2 0 1 0 6 3 A2 2 0 1 0 6 7 M18 13 A2 2 0 1 0 18 9 A2 2 0 1 0 18 13 M8 21 A2 2 0 1 0 8 17 A2 2 0 1 0 8 21 M7.8 5.9 L16.2 10.1 M16.4 12.2 L9.6 17.8 M6.4 7 L7.6 17",
   plug: "M9 3 V8 M15 3 V8 M6 8 H18 V11 A6 6 0 0 1 6 11 Z M12 17 V21",
   key: "M8 11 A4 4 0 1 0 8 19 A4 4 0 1 0 8 11 M10.8 12.2 L19 4 M16 7 L18.5 9.5 M14 9 L16 11",
+  bookmark: "M6 3 H18 V21 L12 16.5 L6 21 Z",
+  download: "M12 4 V15 M7 10 L12 15 L17 10 M5 20 H19",
+  folder: "M3 6 H9 L11 8 H21 V19 H3 Z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

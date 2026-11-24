@@ -84,9 +84,14 @@ export function hawSearch(spec: SearchSpec, limit: number, schema: Schema): HawS
 }
 
 export function hawExpand(nodeIds: string[], options: ExpandOptions): HawStatement {
+  const label = options.label ? ":" + hawName(options.label) : "";
+  const pattern = (n: string, r: string, m: string) => `MATCH (${n})${relPattern(r, options.type, options.direction ?? "both")}(${m}${label}) WHERE id(${n}) IN $ids`;
+  if (!options.text) return { statement: `${pattern("n", "r", "m")} RETURN n, r, m LIMIT ${int(options.limit)}`, parameters: { ids: ids(nodeIds) } };
+  // No `keys()` to filter with: read candidates, named as a pattern's columns, and let `filterRows` check `n1`.
   return {
-    statement: `MATCH (n)${relPattern("r", options.type, options.direction ?? "both")}(m) WHERE id(n) IN $ids RETURN n, r, m LIMIT ${int(options.limit)}`,
+    statement: `${pattern("n0", "r0", "n1")} RETURN n0, r0, n1 LIMIT ${TEXT_SCAN}`,
     parameters: { ids: ids(nodeIds) },
+    text: [undefined, options.text],
   };
 }
 
@@ -273,8 +278,11 @@ export class HawDbSource implements GraphSource {
   }
 
   async expand(nodeIds: string[], options: ExpandOptions): Promise<GraphResult> {
-    const res = this.run(hawExpand(nodeIds, options));
-    return { nodes: res.nodes, rels: res.rels, rows: res.cells.length };
+    const st = hawExpand(nodeIds, options);
+    const res = this.run(st);
+    if (!st.text) return { nodes: res.nodes, rels: res.rels, rows: res.cells.length };
+    const rows = filterRows(res.cells, res.columns, st.text, options.limit);
+    return { ...graphOf(rows), rows: rows.length };
   }
 
   async relationshipsAmong(nodeIds: string[]): Promise<DbRel[]> {

@@ -2,7 +2,7 @@
  * Petal's state and the work that changes it: the connection, the schema, the scene, the perspective
  * and the settings. Pages read the signals and call the functions; nothing here renders.
  */
-import { batch, computed, context, signal, Storage } from "nsh";
+import { batch, Clipboard, computed, context, signal, Storage } from "nsh";
 import { createGraphController, type GraphController, type LabelMode, type LayoutKind } from "nsh-graph";
 import { DemoSource } from "../graph/demo";
 import { GremlinSource } from "../graph/gremlin";
@@ -10,6 +10,7 @@ import { HawDbSource } from "../graph/hawdb";
 import { MemgraphSource } from "../graph/memgraph";
 import { NebulaSource } from "../graph/nebula";
 import { NeptuneSource } from "../graph/neptune";
+import { PuppyGraphSource } from "../graph/puppygraph";
 import { Neo4jSource } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { parsePhrase, phraseOf } from "../graph/phrase";
@@ -19,6 +20,8 @@ import { createNotebook, type FrameAuthor } from "./notebook";
 import { EMPTY_SCHEMA, errorMessage, type Direction, type GraphSource, type Schema, type SearchSpec } from "../graph/source";
 import { createPerspective } from "./perspective";
 import { createScene } from "./scene";
+import { createSavedScenes, layoutOf, parseSceneFile, sceneFile, type NodePlace, type SavedScene } from "./savedScenes";
+import { exportFile, fileStamp, filesAvailable, pickJsonFile, safeFileName } from "./files";
 import { migrateRemembered, newConnectionId, tidy, type ConnectionForm, type ConnectionSettings, type SavedConnection } from "./connections";
 
 export type ConnectionState = "connecting" | "ready" | "error";
@@ -31,6 +34,18 @@ export interface Notice {
   tone: "info" | "error";
 }
 
+/** Which neighbors an expansion brings in: Graph Explorer's expand panel. */
+export interface ExpandFilter {
+  type?: string;
+  direction?: Direction;
+  /** Only neighbors with this label. */
+  label?: string;
+  /** Only neighbors with a property containing these words. */
+  text?: string;
+  /** At most this many; the settings' limit when missing. */
+  limit?: number;
+}
+
 /** What the main area shows: the scene to explore, or the notebook of queries. */
 export type Mode = "explore" | "notebook";
 
@@ -41,6 +56,8 @@ export interface Settings {
   labelMode: LabelMode;
   edgeLabels: boolean;
   mode: Mode;
+  /** The scene's table shows under the canvas. */
+  table: boolean;
 }
 
 const SETTINGS_KEY = "settings";
@@ -51,7 +68,7 @@ const CONNECTIONS_KEY = "connections";
 /** The most nodes a scene holds (Bloom's default is 10 000): nsh-graph's Rust layout settles 5 000 in about 5 s. */
 export const SCENE_LIMIT = 5000;
 
-const DEFAULT_SETTINGS: Settings = { limit: 100, layout: "force", labelMode: "auto", edgeLabels: false, mode: "explore" };
+const DEFAULT_SETTINGS: Settings = { limit: 100, layout: "force", labelMode: "auto", edgeLabels: false, mode: "explore", table: false };
 
 export interface AppStoreOptions {
   /** Starts on this source instead of the demo graph (tests). */
@@ -83,6 +100,9 @@ export function createAppStore(options: AppStoreOptions = {}) {
   /** Shown while the MCP dialog (Connect an assistant) is open. */
   const mcpOpen = signal(false);
   const panelOpen = signal(true);
+  const scenes = createSavedScenes();
+  /** Where an opened scene's nodes start on the canvas, until it has drawn them. */
+  const places = signal<Record<string, NodePlace> | null>(null);
   const notebook = createNotebook({
     source: () => source(),
     schema: () => schema(),
@@ -139,7 +159,7 @@ export function createAppStore(options: AppStoreOptions = {}) {
       graph.clearSelection();
     });
     try {
-      await Promise.all([perspective.load(next.key), notebook.load(next.key)]);
+      await Promise.all([perspective.load(next.key), notebook.load(next.key), scenes.load(next.key)]);
       const s = await next.schema();
       if (source() !== next) return;
       batch(() => {
@@ -193,6 +213,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
         return Neo4jSource.connect(form);
       case "memgraph":
         return MemgraphSource.connect(form);
+      case "puppygraph":
+        return PuppyGraphSource.connect(form);
       case "neptune":
         return NeptuneSource.connect(form);
       case "gremlin":
@@ -322,12 +344,24 @@ export function createAppStore(options: AppStoreOptions = {}) {
     });
   }
 
-  async function expand(ids: string[], opts: { type?: string; direction?: Direction } = {}) {
+  /**
+   * Brings in the neighbors of `ids`: all of them, or only those across one relationship type and direction,
+   * with a label, or with a property containing some words, up to `limit` (the settings' by default).
+   */
+  async function expand(ids: string[], opts: ExpandFilter = {}) {
     if (!ids.length) return;
+    const filtered = !!(opts.label || opts.text);
     await task("Expanding", async () => {
-      const result = await source().expand(ids, { ...opts, limit: settings().limit });
+      const result = await source().expand(ids, {
+        type: opts.type,
+        direction: opts.direction,
+        label: opts.label || undefined,
+        text: opts.text?.trim() || undefined,
+        limit: opts.limit && opts.limit > 0 ? Math.floor(opts.limit) : settings().limit,
+      });
       const change = await bring(result);
-      notify(change.addedNodes || change.addedRels ? describeChange(change, result.rows) : "No more neighbors to show.");
+      if (change.addedNodes || change.addedRels) notify(describeChange(change, result.rows));
+      else notify(filtered && !result.rows ? "No neighbors match the filters." : "No more neighbors to show.");
     });
   }
 
@@ -370,6 +404,127 @@ export function createAppStore(options: AppStoreOptions = {}) {
 
   function undo() {
     if (scene.undo()) notify("Undone.");
+  }
+
+  /** The scene as it is now, with where its nodes are: what saving and copying keep. */
+  function snapshot(name: string): SavedScene {
+    const ids = [...scene.nodes().keys()];
+    return {
+      name,
+      savedAt: Date.now(),
+      nodes: [...scene.nodes().values()],
+      rels: [...scene.rels().values()],
+      layout: layoutOf(ids, (id) => graph.position(id), (id) => graph.isPinned(id)),
+    };
+  }
+
+  /** Saves the scene under `name` for this database. Resolves with null, or what went wrong. */
+  async function saveScene(name: string): Promise<string | null> {
+    const n = name.trim();
+    if (!n) return "Give the scene a name.";
+    if (scene.nodes().size === 0) return "The scene is empty.";
+    const error = await scenes.save(snapshot(n), source().kind);
+    if (!error) notify(`Saved the scene as “${n}”.`);
+    return error;
+  }
+
+  /**
+   * Replaces the scene with a saved one (undo brings the old one back), its nodes where they were. Relationships
+   * whose ends are missing stay out.
+   */
+  function openScene(saved: Pick<SavedScene, "name" | "nodes" | "rels" | "layout">) {
+    const nodes = saved.nodes.slice(0, SCENE_LIMIT);
+    perspective.register(nodes.flatMap((n) => n.labels));
+    batch(() => {
+      places.set(saved.layout);
+      graph.clearSelection();
+      scene.replace({ nodes, rels: saved.rels });
+    });
+    // Once the canvas has the nodes where they start, let the layout own them again and pin the pinned ones.
+    setTimeout(() => {
+      places.set(null);
+      for (const [id, p] of Object.entries(saved.layout)) if (p[2] === 1 && scene.nodes().has(id)) graph.setPinned(id, true);
+      graph.fit();
+    }, 60);
+    const left = saved.nodes.length - nodes.length;
+    notify(left > 0 ? `Opened “${saved.name}”; ${left} nodes past the scene's ${SCENE_LIMIT} were left out.` : `Opened “${saved.name || "the scene"}”.`);
+  }
+
+  async function deleteScene(name: string) {
+    await scenes.remove(name);
+    notify(`Deleted the saved scene “${name}”.`);
+  }
+
+  /** Puts the scene on the clipboard as JSON, for someone else on the same database. */
+  async function copyScene() {
+    if (scene.nodes().size === 0) return notify("The scene is empty.");
+    try {
+      await Clipboard.writeText(sceneFile(snapshot(""), source().kind));
+      notify(`Copied the scene (${scene.nodes().size} nodes) to the clipboard.`);
+    } catch {
+      notify("Couldn't copy to the clipboard.", "error");
+    }
+  }
+
+  /**
+   * Writes `text` to a file in Downloads on the desktops (`what` says what it holds, for the notice), or puts it
+   * on the clipboard where there are no files (the web).
+   */
+  async function exportText(fileName: string, text: string, what: string) {
+    if (!filesAvailable()) {
+      try {
+        await Clipboard.writeText(text);
+        notify(`Copied ${what} to the clipboard.`);
+      } catch {
+        notify("Couldn't copy to the clipboard.", "error");
+      }
+      return;
+    }
+    try {
+      const path = await exportFile(safeFileName(fileName), text);
+      notify(`Exported ${what} to ${path}`);
+    } catch (e) {
+      notify(`Couldn't write the file: ${errorMessage(e)}`, "error");
+    }
+  }
+
+  /** Writes the scene to a JSON file (`petal-scene/1`), for someone else on the same database. */
+  async function exportScene() {
+    if (scene.nodes().size === 0) return notify("The scene is empty.");
+    const n = scene.nodes().size;
+    await exportText(`Petal scene ${fileStamp()}.json`, sceneFile(snapshot(""), source().kind), `the scene (${n} ${n === 1 ? "node" : "nodes"})`);
+  }
+
+  /** Opens a scene file the person picks. */
+  async function importScene() {
+    let picked: { name: string; text: string } | null;
+    try {
+      picked = await pickJsonFile();
+    } catch (e) {
+      return notify(errorMessage(e), "error");
+    }
+    if (!picked) return;
+    openParsed(picked.text, picked.name.replace(/\.json$/i, ""), "The file isn't a Petal scene.");
+  }
+
+  function openParsed(text: string, fallbackName: string, notScene: string) {
+    const parsed = parseSceneFile(text);
+    if ("error" in parsed) return notify(parsed.error.replace("The clipboard doesn't hold a Petal scene.", notScene), "error");
+    if (parsed.scene.source && parsed.scene.source !== source().kind) {
+      notify(`This scene came from a ${parsed.scene.source} database; expanding its nodes may find nothing here.`, "error");
+    }
+    openScene({ ...parsed.scene, name: parsed.scene.name || fallbackName });
+  }
+
+  /** Opens a scene from the clipboard's JSON. */
+  async function pasteScene() {
+    let text = "";
+    try {
+      text = await Clipboard.readText();
+    } catch {
+      return notify("Couldn't read the clipboard.", "error");
+    }
+    openParsed(text, "the pasted scene", "The clipboard doesn't hold a Petal scene.");
   }
 
   function clearScene() {
@@ -422,6 +577,17 @@ export function createAppStore(options: AppStoreOptions = {}) {
     panelOpen,
     notebook,
     mcp,
+    scenes,
+    places,
+    saveScene,
+    openScene,
+    deleteScene,
+    copyScene,
+    pasteScene,
+    exportScene,
+    importScene,
+    exportText,
+    filesAvailable,
     setMode,
     showResult,
     selectedNode,
