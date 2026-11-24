@@ -24,6 +24,6 @@
     }
   },
   "dependencies": {
-    "nsh-graph": "^0.1.1"
+    "nsh-graph": "^0.2.0"
   }
 }
