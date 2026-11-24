@@ -210,6 +210,7 @@ test("reads the gateway's session cookie and graphd's address", () => {
 
 import { decodeHawDb, filterRows, hawCreateRels, hawExpand, hawName, hawSearch } from "./hawdb";
 import type { NativeResult } from "./encoded";
+import { collectGraph as tigerCollect, interpretText, readSchema, resultTable, splitVertexId, tigerBase, tigerName, tigerPattern, toRel } from "./tigergraph";
 import { PUPPY_TEXT_SCAN, puppyAmong, puppyExpand, puppyNeighborhood, puppySearch, schemaPatterns } from "./puppygraph";
 
 test("builds HawDB's Cypher subset: columns for paths, plain names, text filtered by Petal", () => {
@@ -473,4 +474,58 @@ test("PuppyGraph's statements keep to its openCypher: elementId(), no startNode(
   ]);
   expect(boltUri("puppy.example.com", "PuppyGraph")).toBe("bolt://puppy.example.com:7687");
   expect(() => boltUri("http://puppy:8081", "PuppyGraph")).toThrow(/PuppyGraph over Bolt/);
+});
+
+test("TigerGraph: addresses, its schema with reverse edges, vertex IDs per type, and openCypher patterns", () => {
+  expect(tigerBase("localhost")).toBe("http://localhost:14240");
+  expect(tigerBase("https://abc.i.tgcloud.io/")).toBe("https://abc.i.tgcloud.io");
+  expect(tigerBase("abc.i.tgcloud.io")).toBe("https://abc.i.tgcloud.io");
+  expect(() => tigerBase("bolt://x")).toThrow(/http/);
+  expect(splitVertexId("Person:a:b")).toEqual({ type: "Person", id: "a:b" });
+
+  const read = readSchema({
+    VertexTypes: [
+      { Name: "Person", Attributes: [{ AttributeName: "name", AttributeType: { Name: "STRING" } }, { AttributeName: "age", AttributeType: { Name: "INT" } }] },
+      { Name: "Company", Attributes: [{ AttributeName: "name", AttributeType: { Name: "STRING" } }] },
+    ],
+    EdgeTypes: [
+      { Name: "WORKS_AT", FromVertexTypeName: "Person", ToVertexTypeName: "Company", IsDirected: true, Config: { REVERSE_EDGE: "WORKS_AT_REV" } },
+      { Name: "WORKS_AT_REV", FromVertexTypeName: "Company", ToVertexTypeName: "Person", IsDirected: true, Config: {} },
+      { Name: "KNOWS", FromVertexTypeName: "Person", ToVertexTypeName: "Person", IsDirected: false, Config: {} },
+    ],
+  });
+  expect(read.schema.relTypes.map((t) => t.name)).toEqual(["WORKS_AT", "KNOWS"]);
+  expect(read.schema.patterns).toEqual([
+    { from: "Person", type: "WORKS_AT", to: "Company" },
+    { from: "Person", type: "KNOWS", to: "Person" },
+  ]);
+  expect(read.textAttributes.get("Person")).toEqual(["name"]);
+
+  // A reverse edge is the edge it reverses; an undirected edge is the same from either end.
+  const rev = toRel({ e_type: "WORKS_AT_REV", from_type: "Company", from_id: "c1", to_type: "Person", to_id: "p1", directed: true }, read.edgeTypes);
+  expect([rev.type, rev.start, rev.end]).toEqual(["WORKS_AT", "Person:p1", "Company:c1"]);
+  const k1 = toRel({ e_type: "KNOWS", from_type: "Person", from_id: "p2", to_type: "Person", to_id: "p1", directed: false }, read.edgeTypes);
+  const k2 = toRel({ e_type: "KNOWS", from_type: "Person", from_id: "p1", to_type: "Person", to_id: "p2", directed: false }, read.edgeTypes);
+  expect(k1.id).toBe(k2.id);
+
+  const results = [{ n0: { v_id: "p1", v_type: "Person", attributes: { name: "Ada" } }, r0: { e_type: "WORKS_AT", from_type: "Person", from_id: "p1", to_type: "Company", to_id: "c1", directed: true, attributes: {} }, n1: { v_id: "c1", v_type: "Company", attributes: { name: "Acme" } } }];
+  const g = tigerCollect(results, read.edgeTypes);
+  expect(g.nodes.map((n) => n.id)).toEqual(["Person:p1", "Company:c1"]);
+  expect(g.rels.map((r) => r.id)).toEqual(["WORKS_AT:Person:p1>Company:c1"]);
+  expect(resultTable(results).columns).toEqual(["n0", "r0", "n1"]);
+  // PRINT's shape: one object holding the rows.
+  expect(resultTable([{ result: [{ name: "Ada", n: 1 }, { name: "Bob", n: 2 }] }]).rows.length).toBe(2);
+
+  const spec = parsePhrase("Person Ada WORKS_AT Company", read.schema)!;
+  expect(spec.kind).toBe("pattern");
+  expect(tigerPattern(spec as Extract<typeof spec, { kind: "pattern" }>, 25, read)).toBe(
+    'MATCH (n0:Person)-[r0:WORKS_AT]->(n1:Company) WHERE (toLower(n0.name) CONTAINS "ada") RETURN n0, r0, n1 LIMIT 25',
+  );
+  expect(tigerPattern({ kind: "pattern", nodes: [{ label: "Person" }, { label: "Person" }], rels: [{ type: "KNOWS" }] }, 5, read)).toBe(
+    "MATCH (n0:Person)-[r0:KNOWS]-(n1:Person) RETURN n0, r0, n1 LIMIT 5",
+  );
+  expect(() => tigerPattern({ kind: "pattern", nodes: [{ text: "ada" }, { label: "Company" }], rels: [{}] }, 5, read)).toThrow(/need a category/);
+  expect(() => tigerName("a b")).toThrow();
+  expect(interpretText("MATCH (n) RETURN n LIMIT 3;", "social")).toBe("INTERPRET OPENCYPHER QUERY () FOR GRAPH social {\nMATCH (n) RETURN n LIMIT 3\n}");
+  expect(interpretText("INTERPRET QUERY () { PRINT 1; }", "social")).toBe("INTERPRET QUERY () { PRINT 1; }");
 });
