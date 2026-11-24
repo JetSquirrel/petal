@@ -1,7 +1,7 @@
 /**
  * The connection manager, the way a database client has one: saved connections on the left, and on the right
  * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
- * Drivers: Neo4j over its HTTP API, Memgraph and PuppyGraph over Bolt, Amazon Neptune over openCypher (signed with SigV4 when it
+ * Drivers: Neo4j over its HTTP API, Memgraph and PuppyGraph over Bolt, TigerGraph over HTTP, Amazon Neptune over openCypher (signed with SigV4 when it
  * uses IAM), NebulaGraph through its HTTP gateway, a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop),
  * and HawDB embedded in Petal. Passwords (and AWS secrets) are kept only while the app runs.
  */
@@ -76,6 +76,21 @@ const DRIVERS: Driver[] = [
     rows: [
       [{ key: "url", label: "Address", description: "bolt://host:7687", testID: "connect-puppy-url", autoComplete: "url" }],
       [{ key: "user", label: "User", description: "The user PuppyGraph was started with", testID: "connect-puppy-user", autoComplete: "username" }],
+    ],
+  },
+  {
+    kind: "tigergraph",
+    name: "TigerGraph",
+    mark: "TG",
+    blurb: "TigerGraph 3.9 or later, or TigerGraph Cloud, over its GSQL server's HTTP API.",
+    group: "server",
+    password: true,
+    rows: [
+      [{ key: "url", label: "Address", description: "http://host:14240, or https://…i.tgcloud.io", testID: "connect-tiger-url", autoComplete: "url" }],
+      [
+        { key: "user", label: "User", testID: "connect-tiger-user", autoComplete: "username" },
+        { key: "graph", label: "Graph", testID: "connect-tiger-graph" },
+      ],
     ],
   },
   {

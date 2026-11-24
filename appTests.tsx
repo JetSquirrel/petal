@@ -711,6 +711,96 @@ export function appTests(platform: "windows" | "macos") {
     expect(app.texts()).toContain("The cluster wants signed requests: it has IAM authentication on. Enter an access key and its secret.");
   });
 
+  // --- TigerGraph played by the test: the GSQL server's schema, REST++ and interpreted openCypher -----------
+
+  const TIGER = "http://tg.test:14240";
+
+  function tigerServer(seen: string[]) {
+    const ada = { v_id: "p1", v_type: "Person", attributes: { name: "Ada" } };
+    const bob = { v_id: "p2", v_type: "Person", attributes: { name: "Bob" } };
+    const acme = { v_id: "c1", v_type: "Company", attributes: { name: "Acme" } };
+    const works = { e_type: "WORKS_AT", directed: true, from_type: "Person", from_id: "p1", to_type: "Company", to_id: "c1", attributes: {} };
+    const knows = (a: string, b: string) => ({ e_type: "KNOWS", directed: false, from_type: "Person", from_id: a, to_type: "Person", to_id: b, attributes: {} });
+    const ok = (results: unknown): any => ({ body: { error: false, message: "", results } });
+    const authed = (req: { headers: Record<string, string> }) =>
+      (req.headers.authorization ?? req.headers.Authorization) === "Basic dGlnZXJncmFwaDpzZWNyZXQ=";
+    const guard = (fn: (req: { url: string; body?: string | null; headers: Record<string, string> }) => any) => (req: { url: string; body?: string | null; headers: Record<string, string> }) =>
+      authed(req) ? fn(req) : { status: 401, body: { error: true, message: "Wrong username or password!" } };
+    return {
+      [`GET ${TIGER}/gsql/v1/schema/graphs/social`]: guard(() =>
+        ok({
+          GraphName: "social",
+          VertexTypes: [
+            { Name: "Person", Attributes: [{ AttributeName: "name", AttributeType: { Name: "STRING" } }] },
+            { Name: "Company", Attributes: [{ AttributeName: "name", AttributeType: { Name: "STRING" } }] },
+          ],
+          EdgeTypes: [
+            { Name: "WORKS_AT", FromVertexTypeName: "Person", ToVertexTypeName: "Company", IsDirected: true, Config: { REVERSE_EDGE: "WORKS_AT_REV" } },
+            { Name: "WORKS_AT_REV", FromVertexTypeName: "Company", ToVertexTypeName: "Person", IsDirected: true, Config: {} },
+            { Name: "KNOWS", FromVertexTypeName: "Person", ToVertexTypeName: "Person", IsDirected: false, Config: {} },
+          ],
+        }),
+      ),
+      [`POST ${TIGER}/restpp/builtins/social`]: guard((req) =>
+        JSON.parse(req.body ?? "{}").function === "stat_vertex_number"
+          ? ok([{ v_type: "Person", count: 2 }, { v_type: "Company", count: 1 }])
+          : ok([{ e_type: "WORKS_AT", count: 1 }, { e_type: "WORKS_AT_REV", count: 1 }, { e_type: "KNOWS", count: 1 }]),
+      ),
+      [`GET ${TIGER}/restpp/graph/social/vertices/Person?limit=*`]: guard(() => ok([ada, bob])),
+      [`GET ${TIGER}/restpp/graph/social/vertices/Company/c1`]: guard(() => ok([acme])),
+      [`GET ${TIGER}/restpp/graph/social/edges/Person/p1?limit=*`]: guard(() => ok([works, knows("p1", "p2")])),
+      [`GET ${TIGER}/restpp/graph/social/edges/Person/p2?limit=*`]: guard(() => ok([knows("p2", "p1")])),
+      [`GET ${TIGER}/restpp/graph/social/edges/Company/c1?limit=*`]: guard(() => ok([{ ...works, e_type: "WORKS_AT_REV", from_type: "Company", from_id: "c1", to_type: "Person", to_id: "p1" }])),
+      [`POST ${TIGER}/gsql/v1/queries/interpret?graph=social`]: guard((req) => {
+        seen.push(req.body ?? "");
+        if ((req.body ?? "").includes("MATCH (n0:Person)-[r0:WORKS_AT]->(n1:Company)")) return ok([{ n0: ada, r0: works, n1: acme }]);
+        return { body: { error: true, message: "Unexpected query" } };
+      }),
+    };
+  }
+
+  async function connectTiger(app: Awaited<ReturnType<typeof open>>, password: string) {
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-tigergraph");
+    await app.clear("id:connect-tiger-url");
+    await app.type("id:connect-tiger-url", "tg.test");
+    await app.type("id:connect-tiger-graph", "social");
+    await app.type("id:connect-password", password);
+    await app.press("id:connect-submit");
+  }
+
+  test("connects to TigerGraph, reads its schema without reverse edges, and explores it", async () => {
+    const seen: string[] = [];
+    const app = await open("./App.tsx", { ...DESKTOP, network: tigerServer(seen) });
+    await app.waitFor("id:example-Person");
+    await connectTiger(app, "secret");
+    await app.waitFor("text:Connected to tg.test/social.");
+    for (const t of ["Person", "Company", "WORKS_AT", "KNOWS"]) expect(app.texts()).toContain(t);
+    expect(app.texts()).not.toContain("WORKS_AT_REV");
+
+    await app.clear("id:search");
+    await app.type("id:search", "Person");
+    await app.submit("id:search");
+    await app.waitFor("text:Added 2 nodes and 1 relationship.");
+
+    await app.clear("id:search");
+    await app.type("id:search", "Person WORKS_AT Company");
+    await app.submit("id:search");
+    await app.waitFor("text:Added 1 node and 1 relationship.");
+    expect(seen[0]).toBe("INTERPRET OPENCYPHER QUERY () FOR GRAPH social {\nMATCH (n0:Person)-[r0:WORKS_AT]->(n1:Company) RETURN n0, r0, n1 LIMIT 100\n}");
+    expect(stats(app.texts())).toBe("3 nodes, 2 relationships");
+    expect(JSON.parse(app.storage().connections)[0].settings).toEqual({ kind: "tigergraph", url: "tg.test", graph: "social", user: "tigergraph" });
+  });
+
+  test("a wrong TigerGraph password is reported in the dialog", async () => {
+    const app = await open("./App.tsx", { ...DESKTOP, network: tigerServer([]) });
+    await app.waitFor("id:example-Person");
+    await connectTiger(app, "nope");
+    await app.waitFor("id:connect-error");
+    expect(app.texts()).toContain("The user name or password is wrong.");
+  });
+
   // --- Memgraph: Bolt goes through the Rust crate; a closed port is reported --------------------------------
 
   test("a Memgraph that isn't there is reported in the dialog", async () => {

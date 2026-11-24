@@ -51,7 +51,7 @@ export function toolDefinitions(): ToolDefinition[] {
       name: "run_query",
       title: "Run a query",
       description:
-        "Runs a query in the database's own language (Cypher on Neo4j, Memgraph and HawDB, openCypher on PuppyGraph and Amazon Neptune, nGQL on NebulaGraph, Gremlin on Gremlin servers; get_schema says which) and returns its columns and rows, plus the nodes and relationships in them. At most 200 rows come back, so use LIMIT. Queries that write are refused unless the person allowed writes in Petal.",
+        "Runs a query in the database's own language (Cypher on Neo4j, Memgraph and HawDB, openCypher on PuppyGraph, TigerGraph and Amazon Neptune, nGQL on NebulaGraph, Gremlin on Gremlin servers; get_schema says which) and returns its columns and rows, plus the nodes and relationships in them. At most 200 rows come back, so use LIMIT. Queries that write are refused unless the person allowed writes in Petal.",
       inputSchema: {
         type: "object",
         properties: {

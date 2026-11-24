@@ -11,6 +11,7 @@ import { MemgraphSource } from "../graph/memgraph";
 import { NebulaSource } from "../graph/nebula";
 import { NeptuneSource } from "../graph/neptune";
 import { PuppyGraphSource } from "../graph/puppygraph";
+import { TigerGraphSource } from "../graph/tigergraph";
 import { Neo4jSource } from "../graph/neo4j";
 import { mergeResults, type DbNode, type GraphResult } from "../graph/model";
 import { parsePhrase, phraseOf } from "../graph/phrase";
@@ -215,6 +216,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
         return MemgraphSource.connect(form);
       case "puppygraph":
         return PuppyGraphSource.connect(form);
+      case "tigergraph":
+        return TigerGraphSource.connect(form);
       case "neptune":
         return NeptuneSource.connect(form);
       case "gremlin":

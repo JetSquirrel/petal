@@ -2,7 +2,7 @@
 
 **Explore your graph, one connection at a time.**
 
-Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **PuppyGraph**, **Amazon Neptune**,
+Petal is a visual graph explorer in the spirit of Neo4j Bloom, for **Neo4j**, **Memgraph**, **PuppyGraph**, **TigerGraph**, **Amazon Neptune**,
 **NebulaGraph**, Gremlin servers and **HawDB**. It is a [Native Shell (NSH)](https://nsh.dev) app written in TSX, with
 a small Rust crate that embeds HawDB, and it draws the graph with [nsh-graph](../nsh-graph). It runs as a native app
 on Windows, macOS and Linux, and on the web (without HawDB).
@@ -91,7 +91,7 @@ Downloads (exports).
 The database button at the top right (Ctrl/⌘ + O) opens the connection manager. It works the way a database
 client does: saved connections are listed on the left, and you can keep as many as you like, of any database.
 
-- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, PuppyGraph, Amazon Neptune, NebulaGraph, any Gremlin
+- **New connection** (+) shows the databases Petal can open: servers (Neo4j, Memgraph, PuppyGraph, TigerGraph, Amazon Neptune, NebulaGraph, any Gremlin
   server) and HawDB, which runs on this computer. Pick one to fill in its settings.
 - **Test** opens the database, reads its schema, reports what it found and closes it again, without leaving the
   graph you're exploring.
@@ -185,6 +185,38 @@ For about a minute after PuppyGraph starts, its Cypher engine isn't ready, and P
 against a live PuppyGraph yet. The statements follow PuppyGraph's documentation, and parameters (`$ids`) are
 assumed to work over Bolt as they do with Neo4j drivers.
 
+### TigerGraph
+
+Petal talks to TigerGraph over its GSQL server's HTTP API: port 14240 on TigerGraph 4, which also serves REST++
+under `/restpp`, or `https://…i.tgcloud.io` on TigerGraph Cloud. Give Petal:
+
+- **Address**: `http://host:14240`. Petal adds `http://` and `:14240` if they're missing; a `tgcloud.io` address
+  gets `https://` instead.
+- **User** and **Password**: a TigerGraph user with read access to the graph. Petal signs in with Basic
+  authentication. If REST++ asks for a token, Petal requests one from the GSQL server (`POST /gsql/v1/tokens`)
+  with the same user.
+- **Graph**: the graph to explore. If it's wrong, the error lists the graphs that exist.
+
+How Petal works with TigerGraph:
+
+- **Schema.** The schema is the graph's declared one (`/gsql/v1/schema/graphs/{graph}`, or
+  `/gsqlserver/gsql/schema` on TigerGraph 3). Counts come from REST++'s `stat_vertex_number` and
+  `stat_edge_number`. A directed edge type's reverse type (`REVERSE_EDGE`) isn't shown as a type of its own: Petal
+  reads incoming edges through it.
+- **IDs.** A vertex ID is unique only within its type, so Petal's ID is `type:id`. An edge is identified by its type
+  and its two ends.
+- **Exploring.** Categories and words read vertices through REST++, and Petal checks their attributes itself.
+  Neighbors are a vertex's edges (up to 2,000, read once a session) and the vertices at their other ends.
+- **Queries.** Patterns and notebook queries are openCypher, run as interpreted queries
+  (`INTERPRET OPENCYPHER QUERY () FOR GRAPH g { … }`). A query that starts with `INTERPRET` runs as written, so GSQL
+  works too. Interpreted queries take no parameters, so typed words go into the query as escaped literals, and a
+  word in a pattern needs a category before it (`Person Ada WORKS_AT Company`) so that Petal knows which string
+  attributes to search.
+
+Petal hasn't been run against a live TigerGraph yet. The tests play TigerGraph's documented responses, but the
+shape of an interpreted openCypher query's results isn't documented, so Petal finds vertices (`v_id`, `v_type`)
+and edges (`e_type`, `from_id`, `to_id`) wherever they appear in them.
+
 ### HawDB
 
 [HawDB](https://hawdb.ai) is an embedded database with no server. Petal links it as a library through its Rust crate
@@ -266,7 +298,7 @@ mcp/                  MCP with no UI: protocol.ts (JSON-RPC over Streamable HTTP
                       tools.ts (the tools, and the check for queries that write)
 graph/                data access, with no UI: model.ts, source.ts (the GraphSource interface), phrase.ts (search
                       phrases and suggestions), and one module per database: neo4j.ts and cypher.ts, neptune.ts (openCypher
-                      over HTTPS and SigV4), memgraph.ts and puppygraph.ts (Bolt), nebula.ts
+                      over HTTPS and SigV4), memgraph.ts and puppygraph.ts (Bolt), tigergraph.ts (GSQL server and REST++), nebula.ts
                       (gateway client and nGQL), hawdb.ts (HawDB's Cypher subset), demo.ts and demoData.ts
 ```
 
@@ -283,7 +315,7 @@ decides. A request TSX doesn't answer within two minutes gets a 504.
 
 ## Tests
 
-`graph/graph.test.ts` covers phrase parsing and suggestions; the Cypher, nGQL, HawDB and PuppyGraph statements; address mapping;
+`graph/graph.test.ts` covers phrase parsing and suggestions; the Cypher, nGQL, HawDB, PuppyGraph and TigerGraph statements; address mapping;
 decoding of Neo4j's typed JSON, the gateway's rows and HawDB's rows; and the demo database. `App.test.tsx` drives the
 app itself. It covers searching, the suggestion list, undo, hiding categories, selecting and expanding a node, and a
 narrow window. It connects to a Neo4j server and a NebulaGraph gateway that the test plays, including wrong

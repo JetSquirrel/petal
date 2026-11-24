@@ -61,7 +61,7 @@ export interface NeighborhoodEntry {
   count: number;
 }
 
-export type SourceKind = "neo4j" | "memgraph" | "puppygraph" | "neptune" | "nebula" | "gremlin" | "hawdb" | "demo";
+export type SourceKind = "neo4j" | "memgraph" | "puppygraph" | "tigergraph" | "neptune" | "nebula" | "gremlin" | "hawdb" | "demo";
 
 /** The query language a source runs as written (`{ kind: "raw" }`); null when it runs none. */
 export type QueryLanguage = "Cypher" | "nGQL" | "Gremlin" | null;
