@@ -1683,9 +1683,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-graph"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "058078f40b64f06351563650dac9204f51c3690a40ef4aff17e96c6bd1ca5c74"
+checksum = "e3bb6496d4742daa7a9cffd499c81dbf59f3ad27beb2e3041171185ff4c0be0e"
 dependencies = [
  "nsh-core",
 ]
