@@ -27,8 +27,12 @@ cargo test --manifest-path hawdb-helper/Cargo.toml -- --ignored --nocapture   # 
 nsh-graph is an nshm from crates.io (`nsh.json` → `"dependencies"`, pinned in `nsh.lock`; `nsh upgrade nsh-graph`
 updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`). Development builds run
 the HawDB helper built from this checkout (`hawdb-helper/target/release`), so build it once before `nsh run` or
-`nsh test`. That takes a few minutes. Package dependencies need nsh's nightly channel (`nsh update nightly`); 0.6.1, the
-latest release, ignores them.
+`nsh test`. That takes a few minutes. Petal needs nsh 0.7 or later (`nsh update`), which installs package
+dependencies.
+
+The iOS and Android builds don't compile for now: they link HawDB, and every hawdb-storage release (to 0.40) accepts
+only zstd 1.5.7, while NSH 0.7 builds on zstd 1.6.0. They come back when HawDB supports zstd 1.6. The desktops,
+which run HawDB as a program of its own, and the web are unaffected.
 
 `nsh.json` grants what Petal uses: the network to any host (it connects to the databases you give it), the
 clipboard, the menu bar and status bar, the file picker, and files in its data folder (saved scenes) and in
