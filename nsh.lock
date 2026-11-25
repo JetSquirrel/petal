@@ -3,10 +3,10 @@
   "packages": [
     {
       "name": "nsh-graph",
-      "version": "0.1.1",
+      "version": "0.3.0",
       "source": "crates.io",
-      "checksum": "sha256-058078f40b64f06351563650dac9204f51c3690a40ef4aff17e96c6bd1ca5c74",
-      "dir": "nsh-graph/0.1.1",
+      "checksum": "sha256-308a659278706b9a033e8d03b307d82f70c55d528a88b92e88181a9c2380a60f",
+      "dir": "nsh-graph/0.3.0",
       "module": "nsh-graph/native",
       "exports": {
         "nsh-graph": "src/index.ts"

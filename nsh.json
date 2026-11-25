@@ -3,7 +3,7 @@
   "id": "dev.petal.app",
   "version": "0.1.0",
   "build": 1,
-  "nsh": ">=0.6",
+  "nsh": ">=0.7",
   "theme": "theme.json",
   "rust": ".",
   "window": {
@@ -24,6 +24,6 @@
     }
   },
   "dependencies": {
-    "nsh-graph": "^0.1.1"
+    "nsh-graph": "^0.3.0"
   }
 }
