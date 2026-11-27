@@ -471,6 +471,25 @@ export function appTests(platform: "windows" | "macos") {
     expect(JSON.parse(app.storage().connections)).toEqual([]);
   });
 
+  test("Neo4j's protocol switch turns the address between HTTP and Bolt", async () => {
+    const app = await open("./App.tsx", { width: 1320, height: 840, platform });
+    await app.waitFor("id:example-Person");
+    await app.press("id:connection");
+    await app.waitFor("id:connect-dialog");
+    await app.press("id:driver-neo4j");
+    expect(app.value("id:connect-url")).toBe("http://localhost:7474");
+    expect(app.shows("text:http://host:7474, or https://…databases.neo4j.io for Aura")).toBe(true);
+    await app.press("id:connect-protocol-bolt");
+    expect(app.value("id:connect-url")).toBe("bolt://localhost:7687");
+    expect(app.shows("text:bolt://host:7687, or neo4j+s://… for TLS and Aura")).toBe(true);
+    await app.clear("id:connect-url");
+    await app.type("id:connect-url", "https://abc.databases.neo4j.io");
+    await app.press("id:connect-protocol-bolt");
+    expect(app.value("id:connect-url")).toBe("neo4j+s://abc.databases.neo4j.io");
+    await app.press("id:connect-protocol-http");
+    expect(app.value("id:connect-url")).toBe("https://abc.databases.neo4j.io");
+  });
+
   test("Petal 0.2's one connection per driver becomes saved connections", async () => {
     const old = { last: "nebula", neo4j: { url: "http://db:7474", user: "neo4j", database: "movies" }, nebula: { gateway: "http://gw:8080", graphd: "graphd:9669", user: "root", space: "nba" } };
     const app = await open("./App.tsx", { ...DESKTOP, storage: { connection: JSON.stringify(old) } });

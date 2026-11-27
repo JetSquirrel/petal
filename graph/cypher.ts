@@ -13,7 +13,11 @@ export interface Statement {
 const int = (n: number) => String(Math.max(1, Math.floor(n)));
 
 /** The Cypher of a database, where it differs from Neo4j's. */
-export type CypherDialect = "neo4j" | "memgraph" | "neptune";
+/**
+ * The Cypher of a database, where it differs from Neo4j's. `neo4j-bolt` is Neo4j through Petal's Bolt client,
+ * which speaks Bolt 4.4: nodes come with their integer IDs, not element IDs, so they are matched with `id()`.
+ */
+export type CypherDialect = "neo4j" | "neo4j-bolt" | "memgraph" | "neptune";
 
 /**
  * `any property of v contains $p`, case-insensitively. Neo4j reads a property by a key it holds in a variable
@@ -27,6 +31,16 @@ function textFilter(v: string, p: string, dialect: CypherDialect): string {
 
 /** A node's ID as text: `elementId()` in Neo4j 5 and Memgraph; Neptune's IDs are strings, read with `id()`. */
 const idOf = (v: string, dialect: CypherDialect) => (dialect === "neptune" ? `id(${v})` : `elementId(${v})`);
+
+/**
+ * `v`'s ID is one of the list `$p`. Over Bolt 4.4, Neo4j's IDs are integers that Petal keeps as text: the
+ * list is turned back into integers, so Neo4j still finds the nodes by ID rather than scanning them.
+ */
+const idIn = (v: string, p: string, dialect: CypherDialect) =>
+  dialect === "neo4j-bolt" ? `id(${v}) IN [x IN $${p} | toInteger(x)]` : `${idOf(v, dialect)} IN $${p}`;
+
+const idIs = (v: string, p: string, dialect: CypherDialect) =>
+  dialect === "neo4j-bolt" ? `id(${v}) = toInteger($${p})` : `${idOf(v, dialect)} = $${p}`;
 
 /** The arrow of `(a)-[:type]-(b)` that the schema has, so a pattern follows the data's direction. */
 export function orient(schema: Schema, from: string | undefined, type: string | undefined, to: string | undefined): Direction {
@@ -77,7 +91,7 @@ export function searchStatement(spec: SearchSpec, limit: number, schema: Schema,
 
 export function expandStatement(ids: string[], options: ExpandOptions, dialect: CypherDialect = "neo4j"): Statement {
   const parameters: Record<string, unknown> = { ids };
-  let where = `${idOf("n", dialect)} IN $ids`;
+  let where = idIn("n", "ids", dialect);
   if (options.text) {
     parameters.text = options.text.toLowerCase();
     where += ` AND ${textFilter("m", "text", dialect)}`;
@@ -91,14 +105,14 @@ export function expandStatement(ids: string[], options: ExpandOptions, dialect: 
 
 export function relationshipsAmongStatement(ids: string[], dialect: CypherDialect = "neo4j"): Statement {
   return {
-    statement: `MATCH (a)-[r]->(b) WHERE ${idOf("a", dialect)} IN $ids AND ${idOf("b", dialect)} IN $ids RETURN r`,
+    statement: `MATCH (a)-[r]->(b) WHERE ${idIn("a", "ids", dialect)} AND ${idIn("b", "ids", dialect)} RETURN r`,
     parameters: { ids },
   };
 }
 
 export function neighborhoodStatement(id: string, dialect: CypherDialect = "neo4j"): Statement {
   return {
-    statement: `MATCH (n)-[r]-() WHERE ${idOf("n", dialect)} = $id RETURN type(r) AS type, startNode(r) = n AS outgoing, count(*) AS count ORDER BY count DESC`,
+    statement: `MATCH (n)-[r]-() WHERE ${idIs("n", "id", dialect)} RETURN type(r) AS type, startNode(r) = n AS outgoing, count(*) AS count ORDER BY count DESC`,
     parameters: { id },
   };
 }
