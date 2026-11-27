@@ -2,7 +2,7 @@ import { expect, test } from "nsh/test";
 import { expandStatement, orient, searchStatement } from "./cypher";
 import { cypherWrite, DemoSource } from "./demo";
 import { nodeCaption, valueText } from "./model";
-import { collectTyped, decodeTyped, httpBase } from "./neo4j";
+import { collectTyped, decodeTyped, httpBase, isBoltAddress, withProtocol } from "./neo4j";
 import { parsePhrase, phraseOf, suggest, tokenize } from "./phrase";
 import type { Schema } from "./source";
 
@@ -73,6 +73,40 @@ test("maps database addresses to HTTP", () => {
   expect(httpBase("bolt://db.internal:7687")).toBe("http://db.internal:7474");
   expect(httpBase("https://graph.example.com/browser/")).toBe("https://graph.example.com");
   expect(() => httpBase("ftp://x")).toThrow();
+});
+
+test("Bolt URIs go over Bolt on the desktops; http and bare addresses over HTTP", () => {
+  for (const url of ["bolt://localhost:7687", "neo4j://db:7687", "bolt+s://x", "neo4j+s://abc.databases.neo4j.io", " NEO4J+SSC://x "]) {
+    expect(isBoltAddress(url)).toBe(true);
+  }
+  for (const url of ["http://localhost:7474", "https://abc.databases.neo4j.io", "localhost:7687", "bolty://x"]) expect(isBoltAddress(url)).toBe(false);
+});
+
+test("the protocol switch moves an address between HTTP and Bolt, TLS kept", () => {
+  expect(withProtocol("http://localhost:7474", "bolt")).toBe("bolt://localhost:7687");
+  expect(withProtocol("localhost:7474", "bolt")).toBe("bolt://localhost:7687");
+  expect(withProtocol("https://abc.databases.neo4j.io", "bolt")).toBe("neo4j+s://abc.databases.neo4j.io");
+  expect(withProtocol("http://db:8080", "bolt")).toBe("bolt://db:8080");
+  expect(withProtocol("bolt://db:7687", "http")).toBe("http://db:7474");
+  expect(withProtocol("neo4j+s://abc.databases.neo4j.io", "http")).toBe("https://abc.databases.neo4j.io");
+  expect(withProtocol("bolt://db:7687", "bolt")).toBe("bolt://db:7687");
+  expect(withProtocol("", "bolt")).toBe("bolt://localhost:7687");
+  expect(withProtocol("", "http")).toBe("http://localhost:7474");
+});
+
+test("Neo4j over Bolt matches nodes by their integer IDs, turned back from text", async () => {
+  const { neighborhoodStatement, relationshipsAmongStatement } = await import("./cypher");
+  expect(expandStatement(["0", "7"], { limit: 5 }, "neo4j-bolt").statement).toBe(
+    "MATCH (n)-[r]-(m) WHERE id(n) IN [x IN $ids | toInteger(x)] RETURN n, r, m LIMIT 5",
+  );
+  expect(relationshipsAmongStatement(["0"], "neo4j-bolt").statement).toBe(
+    "MATCH (a)-[r]->(b) WHERE id(a) IN [x IN $ids | toInteger(x)] AND id(b) IN [x IN $ids | toInteger(x)] RETURN r",
+  );
+  expect(neighborhoodStatement("3", "neo4j-bolt").statement).toContain("WHERE id(n) = toInteger($id) RETURN");
+  // Words are matched as on Neo4j over HTTP.
+  expect(searchStatement({ kind: "text", term: "Ada" }, 5, schema, "neo4j-bolt").statement).toBe(
+    searchStatement({ kind: "text", term: "Ada" }, 5, schema, "neo4j").statement,
+  );
 });
 
 test("decodes typed JSON, nodes inside paths and lists included", () => {

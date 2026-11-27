@@ -84,9 +84,12 @@ export function relRows(nodes: Map<string, DbNode>, rels: Map<string, DbRel>, le
   return out;
 }
 
+/** The words of a filter, lower-cased: split once, not once per row. */
+const filterWords = (filter: string) => filter.toLowerCase().split(/\s+/).filter(Boolean);
+
 /** Whether any of the row's columns, or a property of the element behind it, contains every word. */
-export function matchesFilter(texts: string[], properties: Record<string, Value> | undefined, filter: string): boolean {
-  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+export function matchesFilter(texts: string[], properties: Record<string, Value> | undefined, filter: string | string[]): boolean {
+  const words = typeof filter === "string" ? filterWords(filter) : filter;
   if (!words.length) return true;
   const hay = [...texts, ...Object.values(properties ?? {}).map(valueText)].join("\u0000").toLowerCase();
   return words.every((w) => hay.includes(w));
@@ -94,26 +97,37 @@ export function matchesFilter(texts: string[], properties: Record<string, Value>
 
 export function filterNodeRows(rows: NodeRow[], nodes: Map<string, DbNode>, filter: string): NodeRow[] {
   if (!filter.trim()) return rows;
-  return rows.filter((r) => matchesFilter([r.caption, r.labels, r.id], nodes.get(r.id)?.properties, filter));
+  const words = filterWords(filter);
+  return rows.filter((r) => matchesFilter([r.caption, r.labels, r.id], nodes.get(r.id)?.properties, words));
 }
 
 export function filterRelRows(rows: RelRow[], rels: Map<string, DbRel>, filter: string): RelRow[] {
   if (!filter.trim()) return rows;
-  return rows.filter((r) => matchesFilter([r.type, r.from, r.to, r.id], rels.get(r.id)?.properties, filter));
+  const words = filterWords(filter);
+  return rows.filter((r) => matchesFilter([r.type, r.from, r.to, r.id], rels.get(r.id)?.properties, words));
 }
 
 /** Text as people read it: case aside, and runs of digits by their number ("item 9" before "item 10"). */
 export function naturalCompare(a: string, b: string): number {
-  const split = (s: string) => s.toLowerCase().match(/\d+|\D+/g) ?? [];
-  const x = split(a);
-  const y = split(b);
+  return compareKeys(naturalKey(a), naturalKey(b));
+}
+
+/** Text split into runs of digits and of other characters, lower-cased: what `naturalCompare` compares. */
+function naturalKey(s: string): string[] {
+  return s.toLowerCase().match(/\d+|\D+/g) ?? [];
+}
+
+const isDigits = (s: string) => s.charCodeAt(0) >= 48 && s.charCodeAt(0) <= 57;
+
+function compareKeys(x: string[], y: string[]): number {
   for (let i = 0; i < Math.min(x.length, y.length); i++) {
     const p = x[i];
     const q = y[i];
     if (p === q) continue;
-    const digits = /^\d/.test(p) && /^\d/.test(q);
-    if (digits) {
-      const d = p.replace(/^0+/, "").length - q.replace(/^0+/, "").length || (p.replace(/^0+/, "") < q.replace(/^0+/, "") ? -1 : 1);
+    if (isDigits(p) && isDigits(q)) {
+      const pn = p.replace(/^0+/, "");
+      const qn = q.replace(/^0+/, "");
+      const d = pn.length - qn.length || (pn < qn ? -1 : 1);
       if (d) return d;
     } else return p < q ? -1 : 1;
   }
@@ -125,12 +139,14 @@ export function sortRows<T extends object>(rows: T[], by: SortBy | null): T[] {
   if (!by) return rows;
   const sign = by.direction === "descending" ? -1 : 1;
   const key = by.key as keyof T;
+  // Each row's sort key is worked out once, not in every comparison.
   return rows
-    .map((row, i) => ({ row, i }))
+    .map((row, i) => {
+      const v = row[key];
+      return { row, i, num: typeof v === "number" ? v : null, text: typeof v === "number" ? null : naturalKey(String(v)) };
+    })
     .sort((a, b) => {
-      const x = a.row[key];
-      const y = b.row[key];
-      const c = typeof x === "number" && typeof y === "number" ? x - y : naturalCompare(String(x), String(y));
+      const c = a.num !== null && b.num !== null ? a.num - b.num : compareKeys(a.text ?? naturalKey(String(a.num)), b.text ?? naturalKey(String(b.num)));
       return c * sign || a.i - b.i;
     })
     .map((e) => e.row);

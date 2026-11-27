@@ -1,22 +1,24 @@
 /**
  * The connection manager, the way a database client has one: saved connections on the left, and on the right
  * either a driver to start a new one with or the chosen connection's settings, with Test, Save and Connect.
- * Drivers: Neo4j over its HTTP API, Memgraph and PuppyGraph over Bolt, TigerGraph over HTTP, Amazon Neptune over openCypher (signed with SigV4 when it
+ * Drivers: Neo4j over its HTTP API or Bolt, Memgraph and PuppyGraph over Bolt, TigerGraph over HTTP, Amazon Neptune over openCypher (signed with SigV4 when it
  * uses IAM), NebulaGraph through its HTTP gateway, a Gremlin server (JanusGraph, HugeGraph, Neptune, TinkerPop),
  * and HawDB on this computer (downloaded the first time on the desktops). Passwords (and AWS secrets) are kept only while the app runs.
  */
 import { signal, Scroll, Text, View } from "nsh";
 import { Dialog } from "nsh/base";
 import { DOWNLOAD_MB, missingMessage, type HawDbState } from "../graph/hawdbHelper";
+import { boltAvailable, isBoltAddress, withProtocol, type Neo4jProtocol } from "../graph/neo4j";
 import { joinSecret, splitSecret } from "../graph/neptune";
 import { useStore } from "../store/app";
 import { addressOf, defaultSettings, toForm, type ConnectionSettings, type DriverKind, type SavedConnection } from "../store/connections";
-import { Button, Field, Icon, IconButton, Row, SectionTitle, Separator, Switch, TextField } from "../ui";
+import { Button, Field, Icon, IconButton, Row, SectionTitle, Segmented, Separator, Switch, TextField } from "../ui";
 
 interface FieldSpec {
   key: string;
   label: string;
-  description?: string;
+  /** Text under the field; a function of the form's values when it depends on them. */
+  description?: string | ((value: (key: string) => string) => string);
   testID: string;
   autoComplete?: "username" | "url";
   mono?: boolean;
@@ -41,11 +43,22 @@ const DRIVERS: Driver[] = [
     kind: "neo4j",
     name: "Neo4j",
     mark: "N4",
-    blurb: "Neo4j 5 or later, including Aura, over its HTTP API.",
+    blurb: "Neo4j 5 or later, including Aura, over its HTTP API or Bolt.",
     group: "server",
     password: true,
     rows: [
-      [{ key: "url", label: "Address", description: "http://host:7474, https://…databases.neo4j.io, or a neo4j+s:// URI", testID: "connect-url", autoComplete: "url" }],
+      [
+        {
+          key: "url",
+          label: "Address",
+          description: (value) =>
+            isBoltAddress(value("url")) && boltAvailable()
+              ? "bolt://host:7687, or neo4j+s://… for TLS and Aura"
+              : "http://host:7474, or https://…databases.neo4j.io for Aura",
+          testID: "connect-url",
+          autoComplete: "url",
+        },
+      ],
       [
         { key: "user", label: "User", testID: "connect-user", autoComplete: "username" },
         { key: "database", label: "Database", testID: "connect-database" },
@@ -177,6 +190,16 @@ const DRIVERS: Driver[] = [
     ],
   },
 ];
+
+const PROTOCOLS: { value: Neo4jProtocol; label: string }[] = [
+  { value: "http", label: "HTTP" },
+  { value: "bolt", label: "Bolt" },
+];
+
+const PROTOCOL_HINT: Record<Neo4jProtocol, string> = {
+  http: "The HTTP API, on port 7474 unless the server says otherwise.",
+  bolt: "Neo4j's binary protocol, on port 7687: for a server whose HTTP port is closed.",
+};
 
 const driverOf = (kind: DriverKind) => DRIVERS.find((d) => d.kind === kind)!;
 
@@ -419,6 +442,9 @@ function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; on
     status.set(null);
   };
   const form = () => toForm(draft(), password(), loadDemo());
+  /** Neo4j's protocol, as its address says. */
+  const protocol = (): Neo4jProtocol => (isBoltAddress(value("url")) ? "bolt" : "http");
+  const describe = (f: FieldSpec) => (typeof f.description === "function" ? f.description(value) : f.description);
   const inUse = () => !!savedAtOpen && store.activeConnection() === savedAtOpen.id && store.connection() === "ready";
 
   const test = async () => {
@@ -463,12 +489,26 @@ function ConnectionEditor(props: { saved?: SavedConnection; kind: DriverKind; on
             />
           </Field>
           <Separator class="my-1" />
+          <If when={props.kind === "neo4j" && boltAvailable()}>
+            <Field label="Protocol" description={protocol() === "bolt" ? PROTOCOL_HINT.bolt : PROTOCOL_HINT.http}>
+              <View class="flex-row">
+                <Segmented
+                  label="Protocol"
+                  class="w-56"
+                  value={protocol()}
+                  options={PROTOCOLS}
+                  onChange={(p) => setValue("url", withProtocol(value("url"), p))}
+                  testID="connect-protocol"
+                />
+              </View>
+            </Field>
+          </If>
           <Each of={driver.rows}>
             {(row) => (
               <View class="flex-row gap-3">
                 <Each of={row()} key={(f) => f.key}>
                   {(f) => (
-                    <Field label={f().label} description={f().description} class="flex-1">
+                    <Field label={f().label} description={describe(f())} class="flex-1">
                       <TextField
                         value={value(f().key)}
                         onChange={(v) => setValue(f().key, v)}

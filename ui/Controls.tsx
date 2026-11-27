@@ -83,10 +83,13 @@ export function Swatch(props: { color: string; size?: number; ring?: boolean }) 
   );
 }
 
-/** A raised surface over the canvas: toolbars, the inspector's cards, popups. */
-export function Surface(props: { children: JSX.Element; class?: string; testID?: string }) {
+/**
+ * A raised surface over the canvas: toolbars, the inspector's cards, popups. `flat` is a card that sits in the
+ * page instead (the notebook's editor and frames): its border carries it, with only a hint of shadow.
+ */
+export function Surface(props: { children: JSX.Element; class?: string; testID?: string; flat?: boolean }) {
   return (
-    <View testID={props.testID} class={`rounded-lg border border-border bg-card shadow-md ${props.class ?? ""}`}>
+    <View testID={props.testID} class={`rounded-lg border border-border bg-card ${props.flat ? "shadow-xs" : "shadow-md"} ${props.class ?? ""}`}>
       {props.children}
     </View>
   );

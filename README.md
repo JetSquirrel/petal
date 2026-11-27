@@ -27,8 +27,7 @@ cargo test --manifest-path hawdb-helper/Cargo.toml -- --ignored --nocapture   # 
 nsh-graph is an nshm from crates.io (`nsh.json` → `"dependencies"`, pinned in `nsh.lock`; `nsh upgrade nsh-graph`
 updates it). The Rust crate (`Cargo.toml`, `src/`) is declared in `nsh.json` (`"rust": "."`). Development builds run
 the HawDB helper built from this checkout (`hawdb-helper/target/release`), so build it once before `nsh run` or
-`nsh test`. That takes a few minutes. Package dependencies need nsh's nightly channel (`nsh update nightly`); 0.6.1, the
-latest release, ignores them.
+`nsh test`. That takes a few minutes. Petal needs nsh 0.7 or later (`nsh update stable`).
 
 `nsh.json` grants what Petal uses: the network to any host (it connects to the databases you give it), the
 clipboard, the menu bar and status bar, the file picker, and files in its data folder (saved scenes) and in
@@ -112,15 +111,20 @@ the new version starts.
 
 ### Neo4j
 
-Petal talks to Neo4j over HTTP, with no driver or proxy:
+Petal talks to Neo4j over HTTP, with no driver or proxy, or over Bolt when the address is a Bolt URI:
 
 - The **Query API** (`/db/{name}/query/v2`, Neo4j 5.19 and later, and Aura), with typed JSON results.
 - The **transactional endpoint** (`/db/{name}/tx/commit`) on earlier 5.x servers, which Petal finds through the
   server's discovery document.
+- **Bolt** (`bolt://host:7687`, `neo4j://…`, and their `+s` and `+ssc` forms) on the desktops, through the same
+  client as Memgraph, so a server whose HTTP port is closed still works. That client speaks Bolt 4.4, so nodes
+  have their integer IDs there and Petal matches them with `id()`; a Bolt address keeps its own perspective and
+  saved scenes. `neo4j://` connects to the one server it names, without cluster routing. The web build has no
+  Bolt and turns Bolt URIs into HTTP addresses: `neo4j+s://host` into `https://host`, `bolt://host:7687` into
+  `http://host:7474`.
 
-The address can be `http://host:7474`, `https://xxxx.databases.neo4j.io`, or a Bolt URI: `neo4j+s://host` is turned
-into `https://host`, and `bolt://host:7687` into `http://host:7474`. Petal needs Neo4j 5 or later, because it uses
-`elementId()`.
+The address can be `http://host:7474`, `https://xxxx.databases.neo4j.io`, or a Bolt URI. Petal needs Neo4j 5 or
+later, because it uses `elementId()` and `toStringOrNull()`.
 
 ### NebulaGraph
 

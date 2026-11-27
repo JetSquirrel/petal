@@ -2,9 +2,16 @@
  * A Neo4j database over HTTP: the Query API (`/db/{name}/query/v2`, Neo4j 5.19 and later, Aura) with typed
  * JSON results, else the transactional endpoint (`/db/{name}/tx/commit`) of earlier 5.x servers.
  *
+ * Or over Bolt, when the address is a `bolt://` or `neo4j://` URI (and their `+s`, `+ssc` forms): through
+ * Petal's Rust crate (`BoltClient`, as Memgraph), so a server whose HTTP port is closed still works. The web
+ * build has no Bolt and maps those URIs to HTTP instead.
+ *
  * NSH's `fetch` has no CORS, so the app talks to the database directly; nothing sits in between.
  */
+import { BoltClient } from "petal/native";
+import proc from "process";
 import {
+  type CypherDialect,
   expandStatement,
   labelCountsStatement,
   neighborhoodStatement,
@@ -13,6 +20,8 @@ import {
   searchStatement,
   type Statement,
 } from "./cypher";
+import { decodeRows } from "./encoded";
+import { boltUri } from "./memgraph";
 import { asNumber, fromPlain, plainProps, valueText, type DbNode, type DbRel, type GraphResult, type Value } from "./model";
 import {
   EMPTY_SCHEMA,
@@ -25,7 +34,7 @@ import {
 } from "./source";
 
 export interface Neo4jConnection {
-  /** `http://localhost:7474`, `https://xxxx.databases.neo4j.io`, or a Bolt URI (`neo4j+s://…`), which maps to HTTP. */
+  /** `http://localhost:7474`, `https://xxxx.databases.neo4j.io`, or a Bolt URI (`bolt://host:7687`, `neo4j+s://…`). */
   url: string;
   user: string;
   password: string;
@@ -60,6 +69,43 @@ export function httpBase(input: string): string {
   rest = rest.replace(/\/.*$/, "");
   if (m && /^(neo4j|bolt)/i.test(m[1])) rest = rest.replace(/:7687$/, scheme === "http" ? ":7474" : "");
   return `${scheme}://${rest}`;
+}
+
+/** Whether the address is a Bolt URI, which the desktops reach over Bolt. */
+export function isBoltAddress(input: string): boolean {
+  return /^(bolt|neo4j)(\+s|\+ssc)?:\/\//i.test(input.trim());
+}
+
+/** Whether this build has Bolt: the desktops and phones, not the web. */
+export const boltAvailable = () => proc.platform !== "web";
+
+export type Neo4jProtocol = "http" | "bolt";
+
+/**
+ * The address for the other protocol, the way the connection dialog's switch changes it: `http://host:7474`
+ * and `bolt://host:7687`, `https://host` and `neo4j+s://host` (TLS, as Aura has it). Other ports stay.
+ */
+export function withProtocol(input: string, protocol: Neo4jProtocol): string {
+  const url = input.trim();
+  if (protocol === "http") {
+    if (!url) return "http://localhost:7474";
+    try {
+      return isBoltAddress(url) ? httpBase(url) : url;
+    } catch {
+      return url;
+    }
+  }
+  if (!url) return "bolt://localhost:7687";
+  if (isBoltAddress(url)) return url;
+  let base: string;
+  try {
+    base = httpBase(url);
+  } catch {
+    return url;
+  }
+  const tls = base.startsWith("https://");
+  const rest = base.replace(/^https?:\/\//, "").replace(/:(7474|7473)$/, ":7687");
+  return `${tls ? "neo4j+s" : "bolt"}://${rest}`;
 }
 
 function basicAuth(user: string, password: string): string {
@@ -154,22 +200,28 @@ export class Neo4jSource implements GraphSource {
   readonly label: string;
   readonly key: string;
   private schemaCache: Schema = EMPTY_SCHEMA;
+  private readonly dialect: CypherDialect;
 
+  /** `base` is the HTTP base, or the Bolt URI when `bolt` is given. */
   private constructor(
     private readonly base: string,
     private readonly conn: Neo4jConnection,
     private mode: Mode,
+    private bolt: BoltClient | null = null,
   ) {
-    const host = base.replace(/^https?:\/\//, "");
+    const host = base.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
     this.label = `${host}/${conn.database}`;
+    // A Bolt URI keys its own perspective and saved scenes: its node IDs aren't the HTTP API's element IDs.
     this.key = `neo4j:${base}/${conn.database}`;
+    this.dialect = bolt ? "neo4j-bolt" : "neo4j";
   }
 
-  /** Finds the server's HTTP API and checks the credentials with `RETURN 1`. */
+  /** Finds the server's HTTP API, or opens a Bolt connection, and checks the credentials with `RETURN 1`. */
   static async connect(conn: Neo4jConnection): Promise<Neo4jSource> {
-    const base = httpBase(conn.url);
     const database = conn.database.trim() || "neo4j";
     const c = { ...conn, database };
+    if (isBoltAddress(conn.url) && boltAvailable()) return Neo4jSource.connectBolt(c);
+    const base = httpBase(conn.url);
     let mode: Mode = "query";
     try {
       const res = await request(`${base}/`, { method: "GET", headers: { Accept: "application/json" } });
@@ -193,12 +245,42 @@ export class Neo4jSource implements GraphSource {
     return source;
   }
 
+  private static async connectBolt(conn: Neo4jConnection): Promise<Neo4jSource> {
+    const uri = boltUri(conn.url, "Neo4j");
+    const client = new BoltClient();
+    try {
+      await client.connect(uri, conn.user, conn.password, conn.database);
+    } catch (e) {
+      client.dispose();
+      throw new SourceError(boltConnectError(e, uri), "BOLT_CONNECT");
+    }
+    const source = new Neo4jSource(uri, conn, "query", client);
+    try {
+      await source.run({ statement: "RETURN 1 AS ok", parameters: {} });
+    } catch (e) {
+      source.close();
+      throw e;
+    }
+    return source;
+  }
+
+  close() {
+    try {
+      this.bolt?.close();
+      this.bolt?.dispose();
+    } catch {
+      // already gone
+    }
+    this.bolt = null;
+  }
+
   get endpoint(): string {
     const db = encodeURIComponent(this.conn.database);
     return this.mode === "query" ? `${this.base}/db/${db}/query/v2` : `${this.base}/db/${db}/tx/commit`;
   }
 
   async run(st: Statement): Promise<RunResult> {
+    if (this.bolt) return this.runBolt(st);
     const headers: Record<string, string> = {
       Authorization: basicAuth(this.conn.user, this.conn.password),
       "Content-Type": "application/json",
@@ -226,6 +308,19 @@ export class Neo4jSource implements GraphSource {
     return this.mode === "query" ? fromQueryApi(json) : fromTx(json);
   }
 
+  private async runBolt(st: Statement): Promise<RunResult> {
+    let json: string;
+    try {
+      json = await this.bolt!.query(st.statement, JSON.stringify(st.parameters));
+    } catch (e) {
+      const message = (e instanceof Error ? e.message : String(e)).trim();
+      if (/authenticat|credentials|unauthori[sz]ed/i.test(message)) throw new SourceError("The user name or password is wrong.", "AUTH");
+      throw new SourceError(cleanError({ message }), "BOLT_QUERY");
+    }
+    const res = decodeRows(json);
+    return { fields: res.columns, rows: res.rows, nodes: res.nodes, rels: res.rels };
+  }
+
   async schema(): Promise<Schema> {
     const [labelsRes, typesRes] = await Promise.all([
       this.run({ statement: "CALL db.labels() YIELD label RETURN label ORDER BY label", parameters: {} }),
@@ -251,7 +346,9 @@ export class Neo4jSource implements GraphSource {
   private async counts(st: Statement): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     try {
-      for (const row of (await this.run(st)).rows) out.set(valueText(row[0]), asNumber(row[1]) ?? 0);
+      const res = await this.run(st);
+      const [name, count] = [column(res, "name", 0), column(res, "count", 1)];
+      for (const row of res.rows) out.set(valueText(row[name]), asNumber(row[count]) ?? 0);
     } catch {
       // counts are a nicety
     }
@@ -280,34 +377,53 @@ export class Neo4jSource implements GraphSource {
   }
 
   async search(spec: SearchSpec, limit: number): Promise<GraphResult> {
-    const res = await this.run(searchStatement(spec, limit, this.schemaCache));
+    const res = await this.run(searchStatement(spec, limit, this.schemaCache, this.dialect));
     return { nodes: res.nodes, rels: res.rels, rows: res.rows.length, table: { columns: res.fields, rows: res.rows } };
   }
 
   async expand(ids: string[], options: ExpandOptions): Promise<GraphResult> {
-    const res = await this.run(expandStatement(ids, options));
+    const res = await this.run(expandStatement(ids, options, this.dialect));
     return { nodes: res.nodes, rels: res.rels, rows: res.rows.length };
   }
 
   async relationshipsAmong(ids: string[]): Promise<DbRel[]> {
     if (ids.length === 0) return [];
-    return (await this.run(relationshipsAmongStatement(ids))).rels;
+    return (await this.run(relationshipsAmongStatement(ids, this.dialect))).rels;
   }
 
   async neighborhood(id: string): Promise<NeighborhoodEntry[]> {
-    const res = await this.run(neighborhoodStatement(id));
+    const res = await this.run(neighborhoodStatement(id, this.dialect));
+    const [type, out, count] = [column(res, "type", 0), column(res, "outgoing", 1), column(res, "count", 2)];
     return res.rows.map((r) => ({
-      type: valueText(r[0]),
-      direction: r[1].type === "Boolean" && r[1].value ? "out" : "in",
-      count: asNumber(r[2]) ?? 0,
+      type: valueText(r[type]),
+      direction: r[out].type === "Boolean" && r[out].value ? "out" : "in",
+      count: asNumber(r[count]) ?? 0,
     }));
   }
+}
+
+/**
+ * Where a column of Petal's own statements is: by name, since Bolt's rows come with their columns sorted by
+ * name (the Bolt client reads them as maps); else where the statement puts it.
+ */
+function column(res: RunResult, name: string, at: number): number {
+  const i = res.fields.indexOf(name);
+  return i >= 0 ? i : at;
 }
 
 function cleanError(e: { code?: string; message?: string }): string {
   const msg = (e.message ?? "The query failed.").trim();
   if (/Unknown function 'elementId'|Unknown function 'toStringOrNull'/i.test(msg)) return "Petal needs Neo4j 5 or later.";
   return msg.length > 400 ? `${msg.slice(0, 400)}…` : msg;
+}
+
+function boltConnectError(e: unknown, uri: string): string {
+  const msg = (e instanceof Error ? e.message : String(e)).trim();
+  const host = uri.replace(/^[a-z+]+:\/\//, "");
+  if (/authenticat|credentials|unauthori[sz]ed|password/i.test(msg)) return "The user name or password is wrong.";
+  if (/refused|unreachable|resolve|No such host|timed out|didn't answer|connection/i.test(msg))
+    return `Couldn't reach ${host} over Bolt. Check the address and that Neo4j is running. (${msg})`;
+  return `Couldn't connect to ${host}: ${msg}`;
 }
 
 async function request(url: string, init: RequestInit): Promise<Response> {
