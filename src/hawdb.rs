@@ -290,15 +290,21 @@ mod install {
 
     /// The helper built from this checkout (`hawdb-helper/target/…`), for `nsh run` and `nsh test`; ""
     /// in release builds, which download it.
+    ///
+    /// nsh 0.7 builds the crate through a manifest of its own under `.nsh/rust/app-crates/`, so the
+    /// checkout is the nearest folder above the manifest with `hawdb-helper/Cargo.toml`.
     pub fn dev_path() -> String {
         if !cfg!(debug_assertions) {
             return String::new();
         }
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("hawdb-helper").join("target");
         let name = format!("petal-hawdb{}", std::env::consts::EXE_SUFFIX);
-        ["release", "debug"]
-            .iter()
-            .map(|p| root.join(p).join(&name))
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .map(|dir| dir.join("hawdb-helper"))
+            .find(|helper| helper.join("Cargo.toml").is_file())
+            .map(|helper| helper.join("target"))
+            .into_iter()
+            .flat_map(|root| ["release", "debug"].map(|p| root.join(p).join(&name)))
             .find(|p| p.is_file())
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default()
