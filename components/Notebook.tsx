@@ -190,7 +190,7 @@ function QueryEditor() {
   const language = () => store.source().language;
   const hint = () => (language() ? `A ${language()} query or a search phrase` : "A search phrase: a label, a pattern, or words");
   return (
-    <Surface class={`flex-row gap-2 p-2 ${nb.draft().includes("\n") ? "items-start" : "items-center"}`} testID="notebook-editor">
+    <Surface flat class={`flex-row gap-2 p-2 ${nb.draft().includes("\n") ? "items-start" : "items-center"}`} testID="notebook-editor">
       <Text class="pl-1 font-mono text-muted-foreground" style={PROMPT}>petal$</Text>
       <View
         class="flex-1"
@@ -268,7 +268,7 @@ function FrameCard(props: { frame: Frame; index: number }) {
   };
 
   return (
-    <Surface class="overflow-hidden p-0" testID={`frame-${props.index}`}>
+    <Surface flat class="overflow-hidden p-0" testID={`frame-${props.index}`}>
       <View class={`flex-row gap-2 border-b border-border bg-muted/40 px-3 py-2 ${editing() || f().text.includes("\n") ? "items-start" : "items-center"}`}>
         <Text class="font-mono text-muted-foreground" style={PROMPT}>$</Text>
         <If
