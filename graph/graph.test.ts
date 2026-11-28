@@ -1,6 +1,8 @@
 import { expect, test } from "nsh/test";
 import { expandStatement, orient, searchStatement } from "./cypher";
 import { cypherWrite, DemoSource } from "./demo";
+import { BUILDS } from "./hawdbHelper";
+import { boltConnectError } from "./memgraph";
 import { nodeCaption, valueText } from "./model";
 import { collectTyped, decodeTyped, httpBase, isBoltAddress, withProtocol } from "./neo4j";
 import { parsePhrase, phraseOf, suggest, tokenize } from "./phrase";
@@ -16,6 +18,23 @@ const schema: Schema = {
     { from: "Person", type: "KNOWS", to: "Person" },
   ],
 };
+
+test("Bolt connection guidance survives localized OS details", () => {
+  const uri = "bolt://localhost:7687";
+  const detail = "Couldn't reach localhost:7687: 由于目标计算机积极拒绝，无法连接。 (os error 10061)";
+  expect(boltConnectError(new Error(detail), uri, "Memgraph")).toBe(
+    `Couldn't reach localhost:7687. Check the address and that Memgraph is running. (${detail})`,
+  );
+  expect(boltConnectError(new Error(detail), uri, "PuppyGraph")).toContain("Check the address and that PuppyGraph is running.");
+  expect(boltConnectError(new Error(detail), uri, "Neo4j")).toContain("Couldn't reach localhost:7687 over Bolt.");
+  expect(boltConnectError(new Error("authentication failed"), uri, "Neo4j")).toBe("The user name or password is wrong.");
+});
+
+test("each supported desktop HawDB release archive has a pinned SHA-256", () => {
+  for (const { sha256 } of Object.values(BUILDS)) {
+    expect(sha256).toMatch(/^[0-9a-f]{64}$/);
+  }
+});
 
 test("tokenizes quoted words as one", () => {
   expect(tokenize(`Person "Sparrow DB"  WORKS_AT`)).toEqual(["Person", "Sparrow DB", "WORKS_AT"]);

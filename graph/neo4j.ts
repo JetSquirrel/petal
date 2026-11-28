@@ -21,7 +21,7 @@ import {
   type Statement,
 } from "./cypher";
 import { decodeRows } from "./encoded";
-import { boltUri } from "./memgraph";
+import { boltConnectError, boltUri } from "./memgraph";
 import { asNumber, fromPlain, plainProps, valueText, type DbNode, type DbRel, type GraphResult, type Value } from "./model";
 import {
   EMPTY_SCHEMA,
@@ -252,7 +252,7 @@ export class Neo4jSource implements GraphSource {
       await client.connect(uri, conn.user, conn.password, conn.database);
     } catch (e) {
       client.dispose();
-      throw new SourceError(boltConnectError(e, uri), "BOLT_CONNECT");
+      throw new SourceError(boltConnectError(e, uri, "Neo4j"), "BOLT_CONNECT");
     }
     const source = new Neo4jSource(uri, conn, "query", client);
     try {
@@ -415,15 +415,6 @@ function cleanError(e: { code?: string; message?: string }): string {
   const msg = (e.message ?? "The query failed.").trim();
   if (/Unknown function 'elementId'|Unknown function 'toStringOrNull'/i.test(msg)) return "Petal needs Neo4j 5 or later.";
   return msg.length > 400 ? `${msg.slice(0, 400)}…` : msg;
-}
-
-function boltConnectError(e: unknown, uri: string): string {
-  const msg = (e instanceof Error ? e.message : String(e)).trim();
-  const host = uri.replace(/^[a-z+]+:\/\//, "");
-  if (/authenticat|credentials|unauthori[sz]ed|password/i.test(msg)) return "The user name or password is wrong.";
-  if (/refused|unreachable|resolve|No such host|timed out|didn't answer|connection/i.test(msg))
-    return `Couldn't reach ${host} over Bolt. Check the address and that Neo4j is running. (${msg})`;
-  return `Couldn't connect to ${host}: ${msg}`;
 }
 
 async function request(url: string, init: RequestInit): Promise<Response> {

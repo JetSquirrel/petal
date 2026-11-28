@@ -16,7 +16,7 @@ import { labelCountsStatement, orient, relCountsStatement } from "./cypher";
 import { decodeRows, graphOf, plainRows, type NativeResult } from "./encoded";
 import { filterRows } from "./hawdb";
 import { asNumber, cypherName, valueText, type DbRel, type GraphResult } from "./model";
-import { boltUri } from "./memgraph";
+import { boltConnectError, boltUri } from "./memgraph";
 import { EMPTY_SCHEMA, SourceError, type Direction, type ExpandOptions, type GraphSource, type NeighborhoodEntry, type Schema, type SearchSpec } from "./source";
 
 export interface PuppyGraphConnection {
@@ -133,7 +133,7 @@ export class PuppyGraphSource implements GraphSource {
       await client.connect(uri, conn.user, conn.password, "");
     } catch (e) {
       client.dispose();
-      throw new SourceError(connectError(e, uri), "BOLT_CONNECT");
+      throw new SourceError(boltConnectError(e, uri, "PuppyGraph"), "BOLT_CONNECT");
     }
     return new PuppyGraphSource(client, uri);
   }
@@ -238,15 +238,6 @@ export class PuppyGraphSource implements GraphSource {
     }
     return entries.sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
   }
-}
-
-function connectError(e: unknown, uri: string): string {
-  const msg = (e instanceof Error ? e.message : String(e)).trim();
-  const host = uri.replace(/^[a-z+]+:\/\//, "");
-  if (/authenticat|credentials|unauthori[sz]ed|password/i.test(msg)) return "The user name or password is wrong.";
-  if (/refused|unreachable|resolve|No such host|timed out|didn't answer|connection/i.test(msg)) return `Couldn't reach ${host}. Check the address and that PuppyGraph is running. (${msg})`;
-  if (/web version|desktop version/i.test(msg)) return msg;
-  return `Couldn't connect to ${host}: ${msg}`;
 }
 
 function queryError(e: unknown): string {

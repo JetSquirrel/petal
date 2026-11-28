@@ -11,7 +11,7 @@ import { Button, Icon, IconButton, Popover, Row, SectionTitle, Segmented, Separa
 
 const fmt = (n: number | undefined) => (n === undefined ? "" : n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString());
 
-export function PerspectivePanel() {
+export function PerspectivePanel(props: { floating: boolean }) {
   const store = useStore();
   const counts = computed(() => sceneCounts(store.scene.nodes(), store.scene.rels(), store.perspective));
 
@@ -33,7 +33,11 @@ export function PerspectivePanel() {
   });
 
   return (
-    <View class="w-64 border-r border-sidebar-border bg-sidebar" testID="perspective">
+    <View
+      class={`w-64 border-r border-sidebar-border bg-sidebar ${props.floating ? "absolute bottom-0 left-0 top-0 shadow-xl" : ""}`}
+      style={{ zIndex: props.floating ? 1 : 0 }}
+      testID="perspective"
+    >
       <Scroll class="flex-1">
         <View class="gap-4 p-3">
           <View class="gap-1">
