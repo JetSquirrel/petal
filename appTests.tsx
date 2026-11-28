@@ -502,6 +502,24 @@ export function appTests(platform: "windows" | "macos") {
     await app.waitFor("text:graphd:9669/nba");
   });
 
+  test("a narrow window can open and close the perspective without shrinking the scene", async () => {
+    const app = await open("./App.tsx", { width: 740, height: 620, platform });
+    await app.setViewport(740, 620);
+    await app.waitFor("id:example-Person");
+    const sceneWidth = app.layout("id:scene")?.width;
+    expect(sceneWidth ?? 0).toBeGreaterThan(0);
+    expect(app.shows("id:perspective")).toBe(false);
+
+    await app.press("id:toggle-panel");
+    await app.waitFor("id:category-add-Person");
+    expect(app.layout("id:scene")?.width).toBe(sceneWidth);
+    await app.press("id:category-add-Person");
+    await app.waitUntil(() => stats(app.texts()).startsWith("30 nodes"));
+    await app.press("id:toggle-panel");
+    expect(app.shows("id:perspective")).toBe(false);
+    expect(stats(app.texts())).toMatch(/^30 nodes, /);
+  });
+
   test("in a narrow window the inspector floats over the scene at full height", async () => {
     const app = await open("./App.tsx", { width: 960, height: 700, platform });
     await app.waitFor("id:example-Person");

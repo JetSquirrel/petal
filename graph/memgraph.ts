@@ -64,7 +64,7 @@ export class MemgraphSource implements GraphSource {
       await client.connect(uri, conn.user, conn.password, conn.database.trim());
     } catch (e) {
       client.dispose();
-      throw new SourceError(connectError(e, uri), "BOLT_CONNECT");
+      throw new SourceError(boltConnectError(e, uri, "Memgraph"), "BOLT_CONNECT");
     }
     return new MemgraphSource(client, uri, conn.database.trim());
   }
@@ -150,11 +150,16 @@ export class MemgraphSource implements GraphSource {
   }
 }
 
-function connectError(e: unknown, uri: string): string {
+export function boltConnectError(e: unknown, uri: string, database: "Memgraph" | "PuppyGraph" | "Neo4j"): string {
   const msg = (e instanceof Error ? e.message : String(e)).trim();
   const host = uri.replace(/^[a-z+]+:\/\//, "");
-  if (/authenticat|credentials|unauthori[sz]ed|password/i.test(msg)) return "The user name or password is wrong.";
-  if (/refused|unreachable|resolve|No such host|timed out|didn't answer|connection/i.test(msg)) return `Couldn't reach ${host}. Check the address and that Memgraph is running. (${msg})`;
+  // BoltClient's TCP probe uses this prefix even when the OS detail is localized.
+  const tcpFailure = msg.startsWith("Couldn't reach ");
+  if (!tcpFailure && /authenticat|credentials|unauthori[sz]ed|password/i.test(msg)) return "The user name or password is wrong.";
+  if (tcpFailure || /refused|unreachable|resolve|No such host|timed out|didn't answer|connection/i.test(msg)) {
+    const protocol = database === "Neo4j" ? " over Bolt" : "";
+    return `Couldn't reach ${host}${protocol}. Check the address and that ${database} is running. (${msg})`;
+  }
   if (/web version|desktop version/i.test(msg)) return msg;
   return `Couldn't connect to ${host}: ${msg}`;
 }

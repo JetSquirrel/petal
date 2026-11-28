@@ -2,7 +2,7 @@
  * Petal's state and the work that changes it: the connection, the schema, the scene, the perspective
  * and the settings. Pages read the signals and call the functions; nothing here renders.
  */
-import { batch, Clipboard, computed, context, signal, Storage } from "nsh";
+import { batch, Clipboard, computed, context, signal, Storage, windowSize } from "nsh";
 import { createGraphController, type GraphController, type LabelMode, type LayoutKind } from "nsh-graph";
 import { DemoSource } from "../graph/demo";
 import { GremlinSource } from "../graph/gremlin";
@@ -102,7 +102,12 @@ export function createAppStore(options: AppStoreOptions = {}) {
   const connectOpen = signal(false);
   /** Shown while the MCP dialog (Connect an assistant) is open. */
   const mcpOpen = signal(false);
-  const panelOpen = signal(true);
+  const perspectiveDocked = () => windowSize().width >= 760;
+  const dockedPerspectiveOpen = signal(true);
+  const floatingPerspectiveOpen = signal(false);
+  const perspectiveVisibility = () => (perspectiveDocked() ? dockedPerspectiveOpen : floatingPerspectiveOpen);
+  const panelOpen = () => perspectiveVisibility()();
+  const togglePerspective = () => perspectiveVisibility().update((open) => !open);
   const scenes = createSavedScenes();
   /** Where an opened scene's nodes start on the canvas, until it has drawn them. */
   const places = signal<Record<string, NodePlace> | null>(null);
@@ -632,6 +637,8 @@ export function createAppStore(options: AppStoreOptions = {}) {
     connectOpen,
     mcpOpen,
     panelOpen,
+    perspectiveDocked,
+    togglePerspective,
     notebook,
     mcp,
     scenes,

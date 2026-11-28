@@ -24,11 +24,13 @@ import {
 } from "../store/sceneTable";
 import { Button, IconButton, Segmented, TextField } from "../ui";
 
+const TABLE_CLASSES = { headerCell: "px-2.5", cell: "px-2.5" };
+
 const NODE_COLUMNS: DataTableColumn[] = [
   { key: "caption", title: "Caption", width: 220, sortable: true },
   { key: "labels", title: "Labels", width: 160, sortable: true },
-  { key: "degree", title: "Relationships", width: 110, sortable: true, align: "end" },
-  { key: "shown", title: "Shown", width: 70, sortable: true },
+  { key: "degree", title: "Relationships", width: 132, sortable: true, align: "end" },
+  { key: "shown", title: "Shown", width: 92, sortable: true },
   { key: "id", title: "ID", width: 200, sortable: true },
 ];
 
@@ -36,7 +38,7 @@ const REL_COLUMNS: DataTableColumn[] = [
   { key: "type", title: "Type", width: 160, sortable: true },
   { key: "from", title: "From", width: 200, sortable: true },
   { key: "to", title: "To", width: 200, sortable: true },
-  { key: "shown", title: "Shown", width: 70, sortable: true },
+  { key: "shown", title: "Shown", width: 92, sortable: true },
   { key: "id", title: "ID", width: 200, sortable: true },
 ];
 
@@ -141,6 +143,7 @@ export function SceneTable() {
         else={
           <DataTable
             columns={REL_COLUMNS}
+            classes={TABLE_CLASSES}
             data={shownRels()}
             sort={kind() === "rels" ? sort() : null}
             onSortChange={(e) => sort.set(e.sort ? { key: e.sort.key, direction: e.sort.direction ?? "ascending" } : null)}
@@ -159,6 +162,7 @@ export function SceneTable() {
       >
         <DataTable
           columns={NODE_COLUMNS}
+          classes={TABLE_CLASSES}
           data={shownNodes()}
           sort={kind() === "nodes" ? sort() : null}
           onSortChange={(e) => sort.set(e.sort ? { key: e.sort.key, direction: e.sort.direction ?? "ascending" } : null)}

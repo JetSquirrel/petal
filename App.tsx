@@ -37,8 +37,8 @@ function App() {
       <View class="flex-1 bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <Header />
         <View class="relative flex-1 flex-row">
-          <If when={store.panelOpen() && width() >= 760}>
-            <PerspectivePanel />
+          <If when={store.panelOpen()}>
+            <PerspectivePanel floating={!store.perspectiveDocked()} />
           </If>
           {/* The scene stays mounted under the notebook, so its layout is where it was when you come back. */}
           <View class={`relative flex-1 flex-row ${notebook() ? "hidden" : ""}`}>
@@ -115,7 +115,7 @@ function installMenu(store: AppStore) {
               setTimeout(focusSearch, 0);
             },
           },
-          { label: "Perspective", shortcut: "mod+b", checked: store.panelOpen(), onSelect: () => store.panelOpen.update((o) => !o) },
+          { label: "Perspective", shortcut: "mod+b", checked: store.panelOpen(), onSelect: store.togglePerspective },
           { label: "Relationship types", checked: settings.edgeLabels, onSelect: () => store.updateSettings({ edgeLabels: !settings.edgeLabels }) },
           { label: "Table", shortcut: "mod+j", checked: settings.table, onSelect: () => store.updateSettings({ table: !settings.table }) },
           { type: "separator" },

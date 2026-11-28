@@ -27,7 +27,7 @@ export function Header() {
         label={store.panelOpen() ? "Hide the perspective" : "Show the perspective"}
         shortcut={shortcutText("B")}
         selected={store.panelOpen()}
-        onPress={() => store.panelOpen.update((o) => !o)}
+        onPress={store.togglePerspective}
         testID="toggle-panel"
       />
       <View class="flex-row items-center gap-2 pr-1">

@@ -16,12 +16,12 @@ const RELEASE = `https://github.com/JetSquirrel/petal/releases/download/hawdb-he
 
 /** The builds of `HELPER_VERSION`, by `process.platform` and `process.arch`: the gzipped program and its SHA-256. */
 export const BUILDS: Record<string, { target: string; sha256: string }> = {
-  "windows-x86_64": { target: "x86_64-pc-windows-msvc", sha256: "" },
-  "windows-aarch64": { target: "aarch64-pc-windows-msvc", sha256: "" },
-  "macos-aarch64": { target: "aarch64-apple-darwin", sha256: "" },
-  "macos-x86_64": { target: "x86_64-apple-darwin", sha256: "" },
-  "linux-x86_64": { target: "x86_64-unknown-linux-gnu", sha256: "" },
-  "linux-aarch64": { target: "aarch64-unknown-linux-gnu", sha256: "" },
+  "windows-x86_64": { target: "x86_64-pc-windows-msvc", sha256: "1f136abd1fa64eb29f7cf49611e6886762d1d6982be1eba36836eb91b82a007f" },
+  "windows-aarch64": { target: "aarch64-pc-windows-msvc", sha256: "41e287326a8ab4ee71d43a5e034c74b5484873f47d9ef373eacd925a0ea6cd19" },
+  "macos-aarch64": { target: "aarch64-apple-darwin", sha256: "1d7cda9110429fb0aabf63eb314bbef4ce82cb4c9c8f36fa6df99ed59aa30d86" },
+  "macos-x86_64": { target: "x86_64-apple-darwin", sha256: "8f902d0f4da25ef2fdd690c24de2c422319d9710f3c8a98b461daee3d1097dd4" },
+  "linux-x86_64": { target: "x86_64-unknown-linux-gnu", sha256: "8e55f73b4b643f8d8c0e7fe787cade1e611074bb250526dcc3cdda9ec807a8a2" },
+  "linux-aarch64": { target: "aarch64-unknown-linux-gnu", sha256: "341f66bffd0abde17691f5ccf51e1a380c2a52747f0cef629f63a1809c2e2813" },
 };
 
 /** About how much the download is, for the button that starts it. */
